@@ -6,6 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Form, Depends, Header, HTTPExcept
 from fastapi.middleware.cors import CORSMiddleware
 from insightface.app import FaceAnalysis
 from pydantic import BaseModel, Field
+import os
 from backend.auth_service import (
     authenticate_rfid,
     authenticate_pin,
@@ -98,6 +99,20 @@ def get_enrollment_context(enrollment_session_id):
         return "REENROLLMENT", "FINGERPRINT"
     return None, None
 
+DEVICE_API_KEY = os.getenv("DEVICE_API_KEY")
+def require_device(x_device_key: str = Header(None)):
+    if not DEVICE_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="DEVICE_API_KEY_NOT_CONFIGURED"
+        )
+    if x_device_key != DEVICE_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="INVALID_DEVICE_KEY"
+        )
+    return True
+
 def require_admin(authorization: str = Header(None)):
     if authorization is None:
         raise HTTPException(status_code=401, detail="MISSING_TOKEN")
@@ -178,7 +193,7 @@ def admin_login(request: AdminLoginRequest):
 
 # Main ID + PIN entry point used by the ESP
 @app.post("/kiosk/id-pin")
-def kiosk_id_pin(request: KioskIDRequest):
+def kiosk_id_pin(request: KioskIDRequest, device=Depends(require_device)):
     result = handle_id_pin(request.employee_id, request.pin)
     flow = result.get("flow")
     credential_type = result.get("credential_type")
@@ -194,7 +209,7 @@ def kiosk_id_pin(request: KioskIDRequest):
     )
 
 @app.post("/auth/rfid")
-def auth_rfid(request: RFIDRequest):
+def auth_rfid(request: RFIDRequest, device=Depends(require_device)):
     result = authenticate_rfid(request.rfid_uid)
     session_id = result.get("session_id")
     return normalize_response(
@@ -207,7 +222,7 @@ def auth_rfid(request: RFIDRequest):
 
 # Development endpoint. ESP normally uses /kiosk/id-pin
 @app.post("/auth/pin")
-def auth_pin(request: PINRequest):
+def auth_pin(request: PINRequest, device=Depends(require_device)):
     result = authenticate_pin(request.employee_id, request.entered_pin)
     session_id = result.get("session_id")
     return normalize_response(
@@ -222,7 +237,7 @@ face_app = FaceAnalysis(name="buffalo_l")
 face_app.prepare(ctx_id=-1)
 
 @app.post("/auth/face")
-async def auth_face(request_id: str = Form(...), session_id: str = Form(...), image: UploadFile = File(...)):
+async def auth_face( request_id: str = Form(...), session_id: str = Form(...), image: UploadFile = File(...), device=Depends(require_device)):
     image_bytes = await image.read()
     image_array = np.frombuffer(image_bytes, dtype=np.uint8)
     frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -268,7 +283,7 @@ async def auth_face(request_id: str = Form(...), session_id: str = Form(...), im
     )
 
 @app.post("/auth/fingerprint")
-def auth_fingerprint(request: FingerprintRequest):
+def auth_fingerprint(request: FingerprintRequest, device=Depends(require_device)):
     result = verify_fingerprint(request.session_id, request.matched_template_slot)
     return normalize_response(
         result=result,
@@ -280,7 +295,7 @@ def auth_fingerprint(request: FingerprintRequest):
 
 # Development endpoint. ESP normally uses /kiosk/id-pin
 @app.post("/enroll/start")
-def enroll_start(request: EnrollmentStartRequest):
+def enroll_start(request: EnrollmentStartRequest, device=Depends(require_device)):
     result = start_enrollment(request.employee_id, request.entered_pin)
     enrollment_session_id = result.get("enrollment_session_id")
     return normalize_response(
@@ -291,7 +306,7 @@ def enroll_start(request: EnrollmentStartRequest):
     )
 
 @app.post("/enroll/rfid")
-def enroll_rfid_endpoint(request: EnrollmentRFIDRequest):
+def enroll_rfid_endpoint(request: EnrollmentRFIDRequest, device=Depends(require_device)):
     flow, credential_type = get_enrollment_context(request.enrollment_session_id)
     result = enroll_rfid(request.enrollment_session_id, request.rfid_uid)
     return normalize_response(
@@ -306,7 +321,8 @@ def enroll_rfid_endpoint(request: EnrollmentRFIDRequest):
 async def enroll_face_endpoint(
     request_id: str = Form(...),
     enrollment_session_id: str = Form(...),
-    image: UploadFile = File(...)
+    image: UploadFile = File(...),
+    device=Depends(require_device)
 ):
     flow, credential_type = get_enrollment_context(enrollment_session_id)
     image_bytes = await image.read()
@@ -360,7 +376,7 @@ async def enroll_face_endpoint(
     )
 
 @app.post("/enroll/fingerprint")
-def enroll_fingerprint_endpoint(request: EnrollmentFingerprintRequest):
+def enroll_fingerprint_endpoint(request: EnrollmentFingerprintRequest, device=Depends(require_device)):
     flow, credential_type = get_enrollment_context(request.enrollment_session_id)
     result = enroll_fingerprint(request.enrollment_session_id, request.template_slot)
     return normalize_response(
@@ -373,7 +389,7 @@ def enroll_fingerprint_endpoint(request: EnrollmentFingerprintRequest):
 
 # Called only after ESP successfully deletes the old fingerprnt templates
 @app.post("/enroll/fingerprint/confirm-old-deleted")
-def confirm_old_fingerprints_deleted_endpoint(request: ConfirmFingerprintDeleteRequest):
+def confirm_old_fingerprints_deleted_endpoint(request: ConfirmFingerprintDeleteRequest, device=Depends(require_device)):
     flow, credential_type = get_enrollment_context(request.enrollment_session_id)
     result = confirm_old_fingerprints_deleted(request.enrollment_session_id)
     return normalize_response(
