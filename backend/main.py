@@ -58,10 +58,6 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(lifespan=lifespan)
-app.mount("/dashboard", StaticFiles(directory="dashboard"), name="dashboard")
-@app.get("/admin-dashboard")
-def admin_dashboard():
-    return FileResponse("dashboard/login.html")
 
 app.add_middleware(
     CORSMiddleware,
@@ -446,3 +442,8 @@ def start_fingerprint_reenrollment_endpoint(user_id: int, admin=Depends(require_
 @app.patch("/admin/password")
 def update_admin_password(request: ChangeAdminPasswordRequest, admin=Depends(require_admin)):
     return change_admin_password(admin["admin_id"], request.current_password, request.new_password)
+
+app.mount("/dashboard", StaticFiles(directory="dashboard"), name="dashboard")
+@app.get("/admin-dashboard")
+def admin_dashboard():
+    return FileResponse("dashboard/login.html")
