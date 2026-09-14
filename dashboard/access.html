@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Attempts</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="dashboard access-dashboard">
+
+        <div class="page-header">
+            <h1>Access Attempts</h1>
+
+            <div class="header-actions">
+                <a class="nav-link" href="index.html">
+                    Back to Users
+                </a>
+            </div>
+        </div>
+
+        <section class="card">
+
+            <input
+                type="text"
+                id="access-search"
+                placeholder="Search Employee ID"
+            >
+
+            <div class="table-wrapper">
+                <table id="access-table">
+
+                    <thead>
+                        <tr>
+                            <th>Attempt ID</th>
+                            <th>Employee ID</th>
+                            <th>Name</th>
+                            <th>Started</th>
+                            <th>Finished</th>
+                            <th>First Factor</th>
+                            <th>Second Factor</th>
+                            <th>Result</th>
+                            <th>Failure Reason</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="access-body"></tbody>
+
+                </table>
+            </div>
+
+        </section>
+
+    </div>
+
+    <script src="access.js"></script>
+
+</body>
+
+</html>

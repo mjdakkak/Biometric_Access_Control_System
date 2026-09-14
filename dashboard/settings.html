@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Settings</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="dashboard">
+
+        <div class="page-header">
+            <h1>Admin Settings</h1>
+
+            <div class="header-actions">
+                <a class="nav-link" href="index.html">
+                    Back to Users
+                </a>
+
+                <button
+                    type="button"
+                    class="logout-button"
+                    onclick="logout()"
+                >
+                    Logout
+                </button>
+            </div>
+        </div>
+
+        <section class="card">
+
+            <h2>Change Password</h2>
+
+            <form id="password-form">
+
+                <input
+                    type="password"
+                    id="current-password"
+                    placeholder="Current Password"
+                    required
+                >
+
+                <input
+                    type="password"
+                    id="new-password"
+                    placeholder="New Password"
+                    minlength="8"
+                    required
+                >
+
+                <input
+                    type="password"
+                    id="confirm-password"
+                    placeholder="Confirm New Password"
+                    minlength="8"
+                    required
+                >
+
+                <button type="submit">
+                    Change Password
+                </button>
+
+            </form>
+
+            <div id="password-result"></div>
+
+        </section>
+
+    </div>
+
+    <script src="settings.js"></script>
+
+</body>
+
+</html>
