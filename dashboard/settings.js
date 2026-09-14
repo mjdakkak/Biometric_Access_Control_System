@@ -15,7 +15,7 @@ form.addEventListener("submit", async function(event) {
         return;
     }
     const response = await fetch(
-        "http://127.0.0.1:8000/admin/password",
+        "/admin/password",
         {
             method: "PATCH",
             headers: {

@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from insightface.app import FaceAnalysis
 from pydantic import BaseModel, Field
 import os
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from backend.auth_service import (
     authenticate_rfid,
     authenticate_pin,
@@ -56,6 +58,11 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/dashboard", StaticFiles(directory="dashboard"), name="dashboard")
+@app.get("/admin-dashboard")
+def admin_dashboard():
+    return FileResponse("dashboard/login.html")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

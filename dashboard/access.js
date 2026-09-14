@@ -22,7 +22,7 @@ async function adminFetch(url, options = {}) {
 }
 
 async function loadAccessAttempts() {
-    const response = await adminFetch("http://127.0.0.1:8000/admin/access-attempts");
+    const response = await adminFetch("/admin/access-attempts");
     if (!response) {
         return;
     }

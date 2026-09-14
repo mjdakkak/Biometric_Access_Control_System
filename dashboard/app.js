@@ -35,7 +35,7 @@ form.addEventListener("submit", async function(event) {
     const lastName = document.getElementById("last-name").value.trim();
     const pin = document.getElementById("pin").value;
     const response = await adminFetch(
-        "http://127.0.0.1:8000/admin/users",
+        "/admin/users",
         {
             method: "POST",
             headers: {
@@ -68,7 +68,7 @@ form.addEventListener("submit", async function(event) {
 });
 
 async function loadUsers() {
-    const response = await adminFetch("http://127.0.0.1:8000/admin/users");
+    const response = await adminFetch("/admin/users");
     if (!response) {
         return;
     }
@@ -185,7 +185,7 @@ function getStatusAction(user) {
 async function toggleUserStatus(userId, currentStatus) {
     const newStatus = currentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/status`,
+        `/admin/users/${userId}/status`,
         {
             method: "PATCH",
             headers: {
@@ -208,7 +208,7 @@ async function toggleUserStatus(userId, currentStatus) {
 }
 
 async function editUser(userId) {
-    const response = await adminFetch("http://127.0.0.1:8000/admin/users");
+    const response = await adminFetch("/admin/users");
     if (!response) {
         return;
     }
@@ -236,7 +236,7 @@ async function saveUserEdit() {
         return;
     }
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${editingUserId}`,
+        `/admin/users/${editingUserId}`,
         {
             method: "PATCH",
             headers: {
@@ -279,7 +279,7 @@ async function resetUserCredentials(userId) {
         return;
     }
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/reset-credentials`,
+        `/admin/users/${userId}/reset-credentials`,
         {
             method: "POST"
         }
@@ -313,7 +313,7 @@ async function reenrollFace(userId) {
         return;
     }
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/face/reenroll`,
+        `/admin/users/${userId}/face/reenroll`,
         {
             method: "POST"
         }
@@ -338,7 +338,7 @@ async function reenrollRFID(userId) {
         return;
     }
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/rfid/reenroll`,
+        `/admin/users/${userId}/rfid/reenroll`,
         {
             method: "POST"
         }
@@ -365,7 +365,7 @@ async function reenrollFingerprint(userId) {
         return;
     }
     const response = await adminFetch(
-        `http://127.0.0.1:8000/admin/users/${userId}/fingerprints/reenroll`,
+        `/admin/users/${userId}/fingerprints/reenroll`,
         {
             method: "POST"
         }
