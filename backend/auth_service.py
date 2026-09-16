@@ -55,7 +55,7 @@ def create_session(user_id, next_step):
         "user_id": user_id,
         "next_step": next_step,
         "current_state": "WAITING_FOR_BIOMETRIC",
-        "expires_at": time.time() + 30
+        "expires_at": time.time() + 60
     }
     return session_id
 
