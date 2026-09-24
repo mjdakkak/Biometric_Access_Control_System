@@ -18,11 +18,6 @@ from backend.repositories import (
 ph = PasswordHasher()
 sessions = {}
 
-def debug_sessions():  # Used to see how many authentication sessions are in RAM
-    print("\nCurrent Sessions:")
-    print(sessions)
-    print("Session Count:", len(sessions))
-
 def cleanup_expired_sessions():  # Removes expired authentication sessions from RAM
     current_time = time.time()
     expired_session_ids = []

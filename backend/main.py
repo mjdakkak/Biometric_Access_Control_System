@@ -15,7 +15,6 @@ from backend.auth_service import (
     verify_face,
     verify_fingerprint,
     cleanup_expired_sessions,
-    sessions
 )
 from backend.enrollment_service import (
     start_enrollment,
@@ -448,17 +447,3 @@ app.mount("/dashboard", StaticFiles(directory="dashboard"), name="dashboard")
 @app.get("/admin-dashboard")
 def admin_dashboard():
     return FileResponse("dashboard/login.html")
-
-@app.get("/debug/sessions")
-def debug_auth_sessions():
-    return {
-        "count": len(sessions),
-        "sessions": sessions
-    }
-
-@app.get("/debug/enrollment-sessions")
-def debug_enrollment_sessions():
-    return {
-        "count": len(enrollment_sessions),
-        "sessions": enrollment_sessions
-    }
