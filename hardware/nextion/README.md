@@ -1,6 +1,6 @@
 # Nextion display project
 
-Target: Discovery **NX3224F028_011**, 240x320 portrait. The user's source `nextionScreen.HMI` is included unchanged in the downloadable EE handoff. The compiled `.TFT` is not included; create it with Nextion Editor and load it using the working FAT32 microSD procedure.
+Target: Discovery **NX3224F028_011**, 240x320 portrait. The user's source `nextionScreen.HMI` is included unchanged in the downloadable hardware handoff. The compiled `.TFT` is not included; create it with Nextion Editor and load it using the working FAT32 microSD procedure.
 
 ## Denied page verified from the uploaded HMI
 
@@ -17,6 +17,6 @@ The full HMI was not edited by the error-formatting patch. Compile/export/upload
 
 ## Repository transfer status
 
-The binary HMI is in the downloadable handoff; it has not yet been uploaded through the current GitHub connector. Add `nextionScreen.HMI` here using GitHub's **Add file -> Upload files**, or copy the complete EE folder from the handoff into a local repository and commit it. Check its SHA-256 against `nextionScreen.HMI.sha256`.
+The binary HMI is in the downloadable handoff; it has not yet been uploaded through the current GitHub connector. Add `nextionScreen.HMI` here using GitHub's **Add file -> Upload files**, or copy the complete hardware folder from the handoff into a local repository and commit it. Check its SHA-256 against `nextionScreen.HMI.sha256`.
 
 No screen source should contain real device keys, Wi-Fi passwords or test-user credentials. Do not upload snapshots or private preview URLs.
