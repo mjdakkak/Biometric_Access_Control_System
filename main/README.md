@@ -81,14 +81,6 @@ This is a functional prototype, not a certified building-access installation. Ke
 
 ## Project photos
 
-### Complete prototype
-
-*Photo to be added.*
-
-<!-- After uploading the photo, replace the line above with:
-![Complete biometric access-control prototype](images/prototype.jpg)
--->
-
 ### Hardware and wiring
 
 *Photo to be added.*
