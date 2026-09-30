@@ -1,52 +1,48 @@
-# Admin Dashboard
+# Database
 
-This folder contains the web-based administrator dashboard for the biometric access control system.
+This folder contains the PostgreSQL schema and database design for the biometric access control system.
 
-The dashboard provides a simple interface for managing users, reviewing access attempts, initiating credential reenrollment, and managing administrator authentication.
+The database stores users, credentials, administrator accounts, reenrollment requests, and authentication attempt history.
 
-It communicates directly with the FastAPI backend using HTTP requests.
+It does not store raw fingerprint templates. Fingerprint templates remain on the physical AS608 sensor, while PostgreSQL stores the mapping between each user and the sensor slot assigned to that template.
+
+## Files
+
+### `schema.sql`
+
+Contains the SQL used to create the PostgreSQL database structure.
+
+### `biometric_access_erd.drawio`
+
+Contains the entity-relationship diagram for the database.
+
+The ERD shows the relationships between users, biometric credentials, access attempts, administrator accounts, and reenrollment requests.
 
 ## Overview
 
-The dashboard was built using:
+The database is designed around the `users` table.
 
-- HTML
-- CSS
-- JavaScript
-- FastAPI REST endpoints
-- JWT bearer authentication
+Each user may have:
 
-No frontend framework is required.
+- one PIN credential
+- one RFID credential
+- one face credential
+- multiple fingerprint-slot mappings
+- multiple access attempts
+- an optional pending reenrollment request
 
-The interface is intentionally lightweight so it can be served directly alongside the FastAPI application.
+Administrator accounts are stored separately.
 
-## Features
+## Main Tables
 
-The dashboard allows an administrator to:
-
-- log in securely
-- view registered users
-- create new users
-- edit user information
-- change user status
-- request credential reenrollment
-- review access attempts
-- change the administrator password
-- log out
-
-The dashboard does not directly communicate with the ESP32 or biometric sensors.
-
-All actions are sent through the backend API.
-
-## Architecture
-
-The dashboard acts as the administrative frontend of the system.
+The schema includes:
 
 ```text
-Administrator
-     ↓
-Web Dashboard
-     ↓
-FastAPI Backend
-     ↓
-PostgreSQL
+users
+face_credential
+fingerprint_credential
+rfid_credential
+pin_credential
+access_attempt
+pending_reenrollment
+admin_user
