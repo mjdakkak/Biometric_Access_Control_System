@@ -17,10 +17,8 @@ Open **`EE/firmware/`** in VS Code/PlatformIO. Its `platformio.ini` and `src/` m
 
 ## Scope and status
 
-Single kiosk; backend-owned authentication/enrollment sequence. No remote-unlock channel or low-power wake-up in the agreed MVP. Authentication approval is not proof that the physical door opened.
+The single-kiosk MVP has completed functional testing on the assembled prototype. Testing covered RFID reading, Nextion interaction, camera-based face enrollment and authentication, fingerprint enrollment and authentication, HTTPS communication, and relay-controlled lock actuation.
 
-The user reported a successful ESP32 build, Wi-Fi/clock readiness, Nextion communication, and real HTTPS routing. The latest camera orientation correction and this error-display update still require confirmation on the device. Fingerprint recovery HTTP/maintenance orchestration, thermal investigation, protected lock verification, and full enrollment remain open.
+The backend controls authentication and enrollment workflows. Dashboard remote unlocking and low-power wake-up are outside the current MVP scope. Fingerprint recovery integration remains deferred and disabled.
 
-The source preserves the uploaded hardware settings: RFID/fingerprint/camera enabled, lock disabled, recovery apply disabled. Disable a peripheral that is not physically ready. Camera preview is a temporary private-LAN diagnostic; disable it after diagnosis. These settings are not a production safety certification.
-
-Read `docs/SETUP.md`, `docs/TEST_STATUS.md`, and `hardware/PINOUT_AND_POWER.md` before powering peripherals.
+See `docs/TEST_STATUS.md` for the tested configuration and results. Backend authentication approval and physical door-opening confirmation remain distinct.
