@@ -1,4 +1,4 @@
-```md
+
 # Face Recognition Evaluation
 
 This folder documents the evaluation of the face-recognition component used by the biometric access control system.
