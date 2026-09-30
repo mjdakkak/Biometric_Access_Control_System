@@ -4,7 +4,7 @@ Electrical/embedded work for the joint **Biometric Access Control System**. The 
 
 ## Open the right folder
 
-Open **`EE/firmware/`** in VS Code/PlatformIO. Its `platformio.ini` and `src/` must remain together. Copy `src/secrets.h.example` to `src/secrets.h` locally, enter your private Wi-Fi/device key, then build/upload. Do not commit the populated file or firmware binaries.
+Open **`hardware/firmware/`** in VS Code/PlatformIO. Its `platformio.ini` and `src/` must remain together. Copy `src/secrets.h.example` to `src/secrets.h` locally, enter your private Wi-Fi/device key, then build/upload. Do not commit the populated file or firmware binaries.
 
 ## Contents
 
@@ -12,7 +12,7 @@ Open **`EE/firmware/`** in VS Code/PlatformIO. Its `platformio.ini` and `src/` m
 |---|---|
 | `firmware/` | Current uploaded C++ baseline plus readable denial messages |
 | `nextion/` | Editable screen project in the downloadable handoff; model/font/event notes |
-| `hardware/` | Pin allocation and qualified prototype wiring notes |
+| `wiring/` | Pin allocation and qualified prototype wiring notes |
 | `docs/` | Setup, API mapping, test status, recovery proposal, and changelog |
 
 ## Scope and status
