@@ -2,81 +2,57 @@
 
 This folder contains the FastAPI backend for the biometric access control system.
 
-The backend is responsible for authentication, enrollment and reenrollment flows, credential validation, access logging, administrator operations, and communication between the ESP32 kiosk and PostgreSQL database.
+The backend is the central decision-making layer of the project. It coordinates the ESP32 kiosk, PostgreSQL database, administrator dashboard, biometric verification logic, enrollment workflows, authentication sessions, and credential lifecycle.
 
-## Overview
+The backend was designed around a thin-edge / cloud-backend architecture. The ESP32 handles physical sensors and user interaction, while the backend maintains identity state, performs authorization decisions, stores persistent records, and controls the authentication and enrollment state machines.
 
-The backend acts as the main decision-making layer of the system.
+---
 
-The ESP32 handles the physical interface and sensors, while the backend determines:
+# Responsibilities
 
-- which authentication flow should start
-- whether credentials are valid
-- which second factor should be requested
-- whether a user should enter authentication, enrollment, or reenrollment
-- how fingerprint template slots are assigned
-- when authentication or enrollment sessions expire
-- how access attempts are recorded
-- how administrators manage users and credentials
+The backend is responsible for:
 
-The backend was developed using FastAPI and PostgreSQL and deployed to Railway for cloud testing.
-
-## Main Responsibilities
-
-The backend handles:
-
-- employee ID and PIN authentication
+- employee ID and PIN verification
 - RFID authentication
-- face authentication
-- fingerprint authentication
-- new-user enrollment
+- face verification
+- fingerprint ownership verification
+- two-factor authentication
+- randomized second-factor selection
+- first-time enrollment
 - face reenrollment
 - RFID reenrollment
 - fingerprint reenrollment
 - authentication session management
 - enrollment session management
 - access-attempt logging
+- user-state management
 - administrator authentication
-- user management
+- JWT generation and validation
 - device authentication
-- cloud database communication
-- ESP32 state-machine coordination
+- PostgreSQL communication
+- fingerprint slot allocation
+- kiosk state routing
+- request/response normalization
+- cloud deployment support
+- coordination with the physical ESP32 kiosk
 
-## System Architecture
+---
 
-The system follows a thin-edge / cloud-backend architecture.
+# Architecture
 
-The ESP32 kiosk is responsible for:
-
-- user interaction
-- Nextion display control
-- RFID reading
-- fingerprint sensor communication
-- camera capture
-- physical hardware control
-- sending requests to the backend
-
-The backend is responsible for:
-
-- authentication decisions
-- credential validation
-- database access
-- face embedding comparison
-- enrollment state
-- reenrollment state
-- user status
-- access logs
-- administrator operations
-
-A typical flow is:
+The backend sits between the physical kiosk and the persistent system state.
 
 ```text
-ESP32
-  ↓
-FastAPI backend
-  ↓
+Physical User
+     ↓
+ESP32 Kiosk
+     ↓
+HTTP Requests
+     ↓
+FastAPI Backend
+     ↓
+Service Layer
+     ↓
+Repository / Database Layer
+     ↓
 PostgreSQL
-  ↓
-FastAPI response
-  ↓
-ESP32 state machine
