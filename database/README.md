@@ -1,80 +1,86 @@
 # PostgreSQL Database
 
-PostgreSQL stores the Biometric Access Control System's user records, credential metadata, administrator accounts, pending reenrollment requests, and authentication-attempt history. The database is the persistent source for the backend, but it does **not** contain fingerprint templates: those are stored on the physical AS608 sensor.
+PostgreSQL holds the persistent records for the **Biometric Access Control System**: employee accounts, credential information, administrator accounts, pending reenrollment requests, and authentication history. FastAPI is responsible for querying and updating these records. The ESP32 and the dashboard do not connect to PostgreSQL directly.
+
+One important design choice is that **fingerprint templates are not stored in the database**. They are stored on the physical AS608 sensor. PostgreSQL records which sensor slots belong to each user.
 
 ## Files
 
-- [Database schema](schema.sql) — the SQL definition of the project's tables, sequence, relationships, and constraints.
-- [Entity-relationship diagram](biometric_access_erd.drawio) — editable database diagram.
+- [`schema.sql`](schema.sql) — tables, sequence, keys, relationships, and constraints.
+- [`biometric_access_erd.drawio`](biometric_access_erd.drawio) — editable entity-relationship diagram.
 
-If you export the ERD as `biometric_access_erd.png` and place it in this folder, you can display it here with `![Database ERD](biometric_access_erd.png)`.
+The editable ERD is included in the repository; no PNG export is required to inspect or modify the database design.
 
 ## Setup
 
-Create a **fresh PostgreSQL database**, then run the schema from the repository root. For example, with the PostgreSQL `psql` client:
+Create an empty PostgreSQL database and apply the schema from the repository root:
 
 ```bash
 psql -h localhost -U YOUR_DB_USER -d YOUR_DB_NAME -f database/schema.sql
 ```
 
-Use the correct host, account, and database for your environment. This command initializes schema objects; it does **not** migrate an existing database, create an administrator account, copy test users, or write physical templates to the fingerprint sensor. Local PostgreSQL and Railway-hosted PostgreSQL are separate databases unless data is explicitly transferred.
+Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in the backend's local `.env` file. The available variables are documented in [`.env.example`](../.env.example), and the full application startup procedure is in the [backend README](../backend/README.md#getting-started).
 
-Configure the backend with `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. The variable names are listed in [`.env.example`](../.env.example), and startup instructions are in the [backend README](../backend/README.md#getting-started).
+The schema creates an **empty database**. It does not seed users, create the first administrator, import records from another database, or create fingerprint templates on the physical sensor. To provision an administrator after applying the schema, follow [Create the first administrator](../backend/README.md#4-create-the-first-administrator).
 
-## Tables
+A local PostgreSQL instance and a Railway-hosted instance are separate databases unless records are explicitly migrated between them.
+
+## Tables and relationships
 
 | Table | Stored information |
 | --- | --- |
-| `users` | Internal user ID, five-digit employee ID, name, status, and creation time |
-| `pin_credential` | User-to-hashed-PIN association |
-| `rfid_credential` | User-to-card UID association and credential status |
-| `face_credential` | User-to-face embedding association and credential status |
-| `fingerprint_credential` | User-to-AS608 template-slot mapping and credential status |
-| `access_attempt` | First and second factors, results, timestamps, overall outcome, and failure reason |
-| `pending_reenrollment` | Pending `FACE`, `RFID`, or `FINGERPRINT` replacement request |
+| `users` | Internal ID, employee ID, name, account status, and creation time |
+| `pin_credential` | User's hashed four-digit PIN |
+| `rfid_credential` | User's full card UID and credential status |
+| `face_credential` | Serialized face embedding and credential status |
+| `fingerprint_credential` | User-to-AS608-template-slot mapping and credential status |
+| `access_attempt` | Authentication factors, results, timestamps, and failure reason |
+| `pending_reenrollment` | A user's pending `FACE`, `RFID`, or `FINGERPRINT` replacement request |
 | `admin_user` | Administrator username and password hash |
 
-The schema also defines `employee_id_seq`, which is used when generating employee IDs.
+The schema also defines `employee_id_seq` for generating employee IDs.
 
-## User identity and relationships
+### User identity
 
-`users.id` is the internal primary key referenced by credential tables. `users.employee_id` is the unique identifier shown at the kiosk and formatted as five digits by the application.
+`users.id` is the internal primary key referenced by credential and access-attempt records. `users.employee_id` is the unique identifier shown at the kiosk and formatted to five digits by the application.
 
-Users can be `PENDING_ENROLLMENT`, `ACTIVE`, or `INACTIVE`. A user has a single PIN row and can have credential records and multiple historical access attempts. Fingerprints are **one-to-many** because normal enrollment assigns two sensor slots per user; the database may also temporarily contain replacement mappings during reenrollment.
+Users have one of three states:
 
-The schema enforces uniqueness of RFID UIDs and fingerprint slot numbers. The application manages which credential records are currently active and how replacement is performed. The intended number of active credentials per user is a **workflow rule** and should not be confused with a database constraint unless the SQL explicitly enforces it.
+- `PENDING_ENROLLMENT`: account exists, but physical enrollment has not finished.
+- `ACTIVE`: the account has completed enrollment and can authenticate unless reenrollment is pending.
+- `INACTIVE`: normal authentication is blocked.
 
-## Where biometrics are stored
+A user has one PIN record and can have several historical access attempts. Credential tables preserve the association between a user and each enrolled factor. Some credential replacement steps temporarily involve old and new records; the exact number of active records is managed by the application and should not be assumed to be a database constraint unless the SQL enforces it.
 
-### Face
+### Face credentials
 
-The database stores a numeric **face embedding** generated from enrollment captures, serialized as text. It is not a raw face photograph. The [ML documentation](../ml/README.md) explains how embeddings are created and compared.
+The database stores a **512-dimensional face embedding**, serialized as text, rather than a raw enrollment photograph. The backend creates this representation from the accepted enrollment captures. Face verification compares a new embedding against the expected user's stored representation. See the [ML evaluation](../ml/README.md) for the distance metric, experiments, and threshold.
 
-### Fingerprint
+### RFID credentials
 
-The database stores a `template_slot` number assigned to a user. The **AS608 stores the actual fingerprint template** in that slot. The backend's current allocator uses slots **1–162**, assuming that range is supported by the installed sensor.
+The RFID table stores the **full UID** provided by the physical card reader. Its unique constraint prevents two credential records from using the same UID. Placeholder values inserted during software tests do not represent real cards and should be removed or reconciled before hardware enrollment.
 
-For example, a row linking user `5` to slot `12` does **not** create a physical template in slot `12`. Seeded mappings and placeholder credentials must not be treated as proof of physical enrollment. The backend database and sensor must agree before matching, replacement, or deletion is tested.
+### Fingerprint credentials
 
-### RFID
+The backend's allocator uses AS608 slots **1–162** for this kiosk. `fingerprint_credential` records a user ID and an assigned `template_slot`; the actual fingerprint template remains on the sensor.
 
-The database stores the full UID sent by the real card reader. Placeholder UIDs used during software testing are not interchangeable with a physically read UID.
+For example, a row associating user `5` with slot `12` means the backend **expects** the user's physical template to be present in slot `12`. Inserting that row does not write anything to the sensor. This is why the physical sensor's contents and the database mappings must be checked together before replacement or deletion.
 
-## Access attempts and reenrollment
+## Access attempts
 
-The `access_attempt` table records first-factor and second-factor results, the overall `SUCCESS`/`FAIL`/`EXPIRED` outcome, and associated timing. `SUCCESS` records a backend authentication decision; it does **not** establish that the door mechanically opened.
+An access-attempt record tracks the first factor (`RFID` or `PIN`), the requested second factor (`FACE` or `FINGERPRINT`), factor results, timestamps, and the final `SUCCESS`, `FAIL`, or `EXPIRED` result.
 
-`pending_reenrollment` records the credential type the user must replace. During fingerprint replacement, the process is designed to retain old templates until replacement enrollment and old-slot deletion are confirmed. Because physical sensor changes and database writes are separate operations, interrupted operations can require reconciliation. See the [backend reenrollment explanation](../backend/README.md#reenrollment) and [hardware recovery proposal](../hardware/docs/FINGERPRINT_RECOVERY_PROPOSAL.md).
+A successful access attempt means the backend accepted the two factors. It is **not proof that the door physically opened**. Recording a lock acknowledgment or door-sensor event would require a separate hardware signal and corresponding data model.
 
-## Security and scope
+## Pending reenrollment and physical state
 
-PINs and administrator passwords are stored as hashes. Fingerprint templates remain on the AS608 rather than in PostgreSQL. Face embeddings and credential metadata are still sensitive and should be protected by database access controls and properly managed credentials.
+The `pending_reenrollment` table records the credential type that must be replaced. When a user with a pending request enters their ID and PIN, the backend routes them to reenrollment rather than normal authentication.
 
-The schema is intended for the current single-kiosk prototype. Shared multi-kiosk slot namespaces, audited schema migrations, and physical door-open events would require additional design.
+Fingerprint replacement needs particular care because the database and the sensor cannot be updated in one atomic transaction. The intended sequence enrolls replacements before requesting old-template deletion, then waits for physical deletion confirmation before removing old database mappings. Unexpected power loss or network interruption can still require reconciliation. The [backend reenrollment section](../backend/README.md#credential-reenrollment) explains the normal flow, and the [hardware recovery proposal](../hardware/docs/FINGERPRINT_RECOVERY_PROPOSAL.md) covers interrupted operations. A recovery proposal is not evidence that automatic recovery is active.
 
-## Related documentation
+## Constraints and security
 
-- [Backend and API](../backend/README.md)
-- [Dashboard](../dashboard/README.md)
-- [Face Recognition Evaluation](../ml/README.md)
-- [Hardware and Firmware](../hardware/README.md)
+The schema uses primary and foreign keys to connect records to users, along with uniqueness constraints for employee IDs, RFID UIDs, and fingerprint slots. Check constraints limit allowed user statuses, authentication factors, outcomes, and reenrollment types.
+
+PINs and administrator passwords are stored as hashes rather than plaintext. Face embeddings and credential mappings are still sensitive information and should be handled as such. Database passwords belong in environment variables, never in the public repository.
+
