@@ -168,7 +168,7 @@ Open [`hardware/nextion/nextionScreen.HMI`](hardware/nextion/nextionScreen.HMI) 
 
 The API workflows were tested before integrating the physical kiosk. Hardware integration then covered input from the Nextion display, RFID, fingerprint enrollment and matching, camera capture and upload, backend workflow responses, user activation, and access-attempt logging. The relay and solenoid are part of the hardware prototype; a backend authentication `SUCCESS` is an approval decision and, by itself, is not proof of physical lock actuation.
 
-Face verification was evaluated separately using the **CMU Multi-PIE** dataset. Two offline experiments compared embedding distances for images of the same person and of different people, with the second experiment introducing greater image variation. The [ML evaluation README](ml/README.md) includes the numerical results, graphs, and the distinction between the experimental threshold and the setting used by the deployed backend.
+Face verification was evaluated separately using the **CMU Multi-PIE** dataset. Two offline experiments compared embedding distances for images of the same person and of different people, with the second experiment introducing greater image variation. The [ML README](ml/README.md) includes the numerical results, graphs, and the distinction between the experimental threshold and the setting used by the deployed backend.
 
 For hardware integration notes, see the [test-status document](hardware/docs/TEST_STATUS.md).
 
