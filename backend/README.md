@@ -1,144 +1,169 @@
 # Backend and Cloud API
 
-The backend is the decision-making component of the **Biometric Access Control System**. It coordinates the ESP32 kiosk, biometric verification, enrollment and reenrollment, administrator operations, and PostgreSQL persistence. The kiosk operates the physical devices; FastAPI validates credentials and tells the kiosk which step to perform next.
+The backend is the part of the **Biometric Access Control System** that decides what happens after someone uses the kiosk. The ESP32 reads the sensors and displays the next instruction; the FastAPI application checks credentials, maintains the current authentication or enrollment session, and records the result in PostgreSQL.
 
-This implementation is designed for a **single-kiosk prototype** and was tested with a Railway-hosted API and PostgreSQL database.
-
-## Contents
-
-- [Architecture](#architecture)
-- [Getting started](#getting-started)
-- [Project files](#project-files)
-- [Authentication](#authentication)
-- [Enrollment](#enrollment)
-- [Reenrollment](#reenrollment)
-- [API and kiosk contract](#api-and-kiosk-contract)
-- [Security](#security)
-- [Deployment and testing](#deployment-and-testing)
-- [Limitations](#limitations)
-
-## Architecture
-
-```text
-                    Administrator
-                         |
-                    Web dashboard
-                         | JWT
-                         v
-ESP32 kiosk ------> FastAPI backend <------> PostgreSQL
- RFID / PIN        services and state        users / credentials
- AS608             |                       sessions' access logs
- camera            +--> OpenCV / InsightFace
- Nextion           |        face verification
-                  +--> next_step response --> ESP32
-```
-
-The backend performs **one-to-one face verification**: the first factor identifies the expected user, and the submitted face is compared with that user's stored embedding. The AS608 performs fingerprint matching locally; the backend checks that the returned sensor slot belongs to the expected user.
-
-The [dashboard](../dashboard/README.md) is served as static files by FastAPI. Persistent data is stored in [PostgreSQL](../database/README.md); authentication and enrollment sessions are held temporarily in server memory.
+The project uses a single ESP32-S3 kiosk, a Nextion display, an RFID reader, an AS608 fingerprint sensor, and an ESP32 camera. FastAPI and PostgreSQL were deployed on Railway and tested with the physical kiosk. The application also serves the [administrator dashboard](../dashboard/README.md).
 
 ## Getting started
 
-Run these commands from the repository root.
+Run these commands from the **repository root**, not from inside `backend/`.
 
-### 1. Create a Python environment
+### 1. Install the Python dependencies
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-On Linux or macOS, activate the environment with `source .venv/bin/activate`.
+On Linux or macOS, activate the environment with `source .venv/bin/activate`. The repository's pinned dependencies are the versions used for the project; use a compatible Python environment when reproducing the installation.
 
-### 2. Set up PostgreSQL
+### 2. Create the database
 
-Create a fresh PostgreSQL database and apply the [SQL schema](../database/schema.sql). With the `psql` client, for example:
+Create an empty PostgreSQL database and apply [the schema](../database/schema.sql):
 
 ```bash
 psql -h localhost -U YOUR_DB_USER -d YOUR_DB_NAME -f database/schema.sql
 ```
 
-The schema initializes an empty database; it does not import test users or create fingerprint templates on the AS608. See [Database setup](../database/README.md#setup).
+This creates the tables and employee ID sequence, **not** an administrator account or physical sensor credentials. See the [database setup notes](../database/README.md#setup).
 
-### 3. Configure the environment
+### 3. Configure `.env`
 
-Create a local `.env` file using [`.env.example`](../.env.example) as a template. Set the following variables:
+Create `.env` in the repository root using [`.env.example`](../.env.example) as a reference:
 
-| Variable | Purpose |
-| --- | --- |
-| `DB_HOST` | PostgreSQL host |
-| `DB_PORT` | PostgreSQL port |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database user |
-| `DB_PASSWORD` | Database password |
-| `JWT_SECRET` | Signing secret for administrator tokens |
-| `DEVICE_API_KEY` | Key required by ESP-facing endpoints |
+```dotenv
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=your_database
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
+JWT_SECRET=replace_with_a_long_random_secret
+DEVICE_API_KEY=replace_with_a_separate_random_device_key
+```
 
-Do not commit `.env`, live API keys, passwords, or production credentials. An administrator account must be provisioned separately before dashboard login; the SQL schema does not create a default administrator.
+These are placeholders, not working credentials. Do not commit your actual `.env` file, JWT secret, database password, or device key.
 
-### 4. Start the API
+### 4. Create the first administrator
 
-```bash
+Administrator creation is deliberately a **local operation**, not an open registration endpoint. The existing `create_admin()` function hashes the password with Argon2, checks for a duplicate username, and requires a password of at least eight characters.
+
+From the repository root, with the environment configured and the database schema installed, run:
+
+```powershell
+python -c "import getpass; from backend.admin_service import create_admin; username=input('Admin username: '); password=getpass.getpass('Admin password: '); print(create_admin(username, password))"
+```
+
+Check that the response reports `success: true`. If it does not, check the returned reason and database configuration. Use an administrator password you have not placed in the repository. If setting up an existing Railway database, run this operation in an authorized environment connected to **that database**, not against a different local database.
+
+### 5. Start FastAPI
+
+```powershell
 python -m uvicorn backend.main:app --reload
 ```
 
 - API: `http://127.0.0.1:8000`
-- Interactive API documentation: `http://127.0.0.1:8000/docs`
+- Interactive API reference: `http://127.0.0.1:8000/docs`
 - Dashboard login: `http://127.0.0.1:8000/dashboard/login.html`
 
-The production-style start command used for Railway is:
+The Railway start command uses the port supplied by the platform:
 
 ```bash
 python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
 ```
 
-## Project files
+## Architecture
 
-| File | Responsibility |
+The ESP32 handles the hardware; the backend owns the workflow and persistent records. Separating these responsibilities lets the firmware respond to a `next_step` rather than independently deciding whether a user is authorized.
+
+```text
+                  Administrator
+                       |
+                  Web dashboard
+                       | JWT
+                       v
+ESP32 kiosk ------> FastAPI backend <----> PostgreSQL
+RFID, keypad        routing/services       users, credentials,
+AS608, camera       in-memory sessions     access logs, admins
+Nextion screen            |
+                         +----> OpenCV / InsightFace
+                         |      face verification
+                         |
+                         +----> flow + next_step ----> ESP32
+```
+
+PostgreSQL stores the durable user and credential records. Active authentication and enrollment sessions live in the FastAPI process, so they are lost when that process restarts. Fingerprint **templates** live on the AS608; the database only stores their assigned slot numbers.
+
+### Source files
+
+| File | Role |
 | --- | --- |
-| `main.py` | FastAPI routes, request models, response formatting, image uploads, middleware, and application lifecycle |
-| `auth_service.py` | First/second-factor verification, authentication sessions, and access-attempt completion |
-| `enrollment_service.py` | First-time enrollment, credential replacement, session progression, and fingerprint-slot allocation |
-| `kiosk_service.py` | ID/PIN routing into authentication, enrollment, or reenrollment |
-| `admin_service.py` | Administrator login, JWTs, user management, and reenrollment requests |
-| `repositories.py` | SQL queries and persistence operations |
-| `db.py` | PostgreSQL connections using environment variables |
+| `main.py` | API routes, request models, face-image processing, middleware, and cleanup lifecycle |
+| `kiosk_service.py` | Routes ID/PIN input into authentication, initial enrollment, or reenrollment |
+| `auth_service.py` | First-factor checks, second-factor verification, session expiration, and access results |
+| `enrollment_service.py` | Enrollment stages, reenrollment stages, and fingerprint-slot allocation |
+| `admin_service.py` | Administrator login, tokens, user management, and reenrollment requests |
+| `repositories.py` | SQL queries and database operations |
+| `db.py` | PostgreSQL connections loaded from environment variables |
 
 ## Authentication
 
-### First factor
-
-RFID is the normal starting method; employee ID plus a four-digit PIN is the fallback. The RFID reader sends the **full card UID**. The PIN path begins at `POST /kiosk/id-pin`, which also checks whether the user needs enrollment or reenrollment.
-
-### Randomized second factor
-
-For an `ACTIVE` user, the backend creates a session and randomly chooses `FACE` or `FINGERPRINT`. The response contains `session_id` and `next_step` so the firmware knows what to request. The second factor must match the **same expected user** identified by the first factor.
-
-- **Face:** the ESP32 uploads an image; InsightFace creates an embedding; the backend compares it with that user's enrolled embedding using Euclidean distance. The current decision threshold is `0.95`. See [Face Recognition Evaluation](../ml/README.md).
-- **Fingerprint:** the AS608 matches a stored template and returns its slot number. The backend verifies the user's assignment to that slot; it does not receive or compare fingerprint templates.
-
-### Session duration and logging
-
-Authentication sessions expire **60 seconds after creation**. This is a fixed deadline; later biometric requests do not refresh it. A cleanup task runs approximately every 10 seconds and removes expired in-memory sessions. Once removed, an old ID may return `UNKNOWN_SESSION_ID`. A server restart also clears active sessions.
-
-Access attempts record the factors used, results, times, and overall `SUCCESS`, `FAIL`, or `EXPIRED` status. `SUCCESS` means the **backend approved authentication**, not that a sensor confirmed the physical door opened.
-
-## Enrollment
-
-An administrator creates a user with status `PENDING_ENROLLMENT`. On the kiosk, a successful ID/PIN entry starts `ENROLLMENT` and returns an `enrollment_session_id`.
+The system uses two factors. **RFID** is the normal first factor; **five-digit employee ID and four-digit PIN** are the fallback. After the first factor is accepted, the backend randomly requests either face or fingerprint verification for the **same user**.
 
 ```text
-ID + PIN -> RFID -> five FACE captures -> two FINGERPRINTS -> COMPLETE
+RFID or employee ID + PIN
+          |
+   first factor valid
+          |
+  auth session created
+          |
+      FACE or FINGERPRINT
+          |
+    verify expected user
+          |
+   SUCCESS / FAIL / EXPIRED
+```
+
+### First factor and kiosk routing
+
+`POST /auth/rfid` starts RFID-first authentication using the card's full UID. `POST /kiosk/id-pin` checks the entered ID and PIN and also considers the user's account state:
+
+- `ACTIVE`, no pending replacement: start `AUTHENTICATION` and choose the second factor.
+- `PENDING_ENROLLMENT`: start first-time `ENROLLMENT` at the RFID step.
+- `ACTIVE`, with a pending credential replacement: start `REENROLLMENT` for the requested credential.
+- `INACTIVE`, unknown user, or invalid credentials: reject the request.
+
+The direct `/auth/pin` and `/enroll/start` routes, if retained in the deployed revision, are development entry points. The normal ID/PIN kiosk path is `/kiosk/id-pin`.
+
+### Face verification
+
+The ESP32 uploads a camera image. OpenCV decodes it; InsightFace detects the face and produces a normalized 512-dimensional embedding. The backend compares it with the expected user's enrolled embedding using Euclidean distance and the configured threshold of **0.95**. This is one-to-one verification, not a search for an unknown person among every user. The [ML README](../ml/README.md) explains how the threshold was investigated.
+
+### Fingerprint verification
+
+The AS608 matches a finger against templates stored on the **physical sensor** and reports the matching slot. The ESP32 sends that slot to the backend; the backend checks whether it belongs to the user identified by the first factor. The backend does not compare raw fingerprint data.
+
+### Session lifetime and access logs
+
+Authentication sessions expire **60 seconds after creation**. The deadline is fixed: the face or fingerprint step does not extend it. A cleanup task checks for expired authentication and enrollment sessions approximately every ten seconds. Once an expired session has been removed from memory, another request with the old ID may return `UNKNOWN_SESSION_ID`.
+
+The `access_attempt` table records the factors, individual results, start and finish times, overall result, and failure reason where applicable. `SUCCESS` means the backend **approved authentication**. It is not independent evidence that the solenoid moved or the door physically opened.
+
+## First-time enrollment
+
+An administrator creates a user with status `PENDING_ENROLLMENT`. The user enters their ID and PIN at the kiosk, receiving a separate `enrollment_session_id` and the first `next_step`.
+
+```text
+ID + PIN -> RFID -> five face captures -> two fingerprints -> COMPLETE
 ```
 
 ### RFID
 
-The physical reader supplies the card's full UID. The backend records it for the user and enforces the database's UID-uniqueness rule. Placeholder UIDs used in API tests are not physical credentials.
+The RFID reader returns the card's full UID. The backend checks the database's unique-UID constraint and associates the card with the user. A placeholder UID inserted during API testing is not evidence that a real card was enrolled.
 
 ### Face
 
-The backend requests these five head positions:
+The backend prompts for five captures in this order:
 
 1. `LOOK_STRAIGHT`
 2. `TURN_SLIGHTLY_LEFT`
@@ -146,74 +171,127 @@ The backend requests these five head positions:
 4. `TURN_SLIGHTLY_RIGHT`
 5. `TURN_MORE_RIGHT`
 
-InsightFace produces a normalized 512-dimensional embedding for each accepted capture. In the available enrollment implementation, the five vectors are averaged and the result is **normalized again** before storage. This multi-view procedure is intended to include pose variation; the offline graphs do not independently measure its benefit over single-image enrollment.
+InsightFace produces a normalized embedding for each accepted image. The service averages those five vectors and **normalizes the average again** before storing the resulting representation. The intention is to include multiple head orientations; the offline experiments did not independently test whether this outperforms single-image enrollment.
 
-### Fingerprint
+### Fingerprints
 
-The backend allocates two available AS608 slots in its configured range of **1–162**. The ESP32 must physically create the templates on the sensor. The database holds user-to-slot mappings, **not the templates themselves**. A seeded database mapping cannot be used for authentication unless the corresponding sensor template actually exists.
-
-After all required steps finish, the backend marks the user `ACTIVE`.
+The backend assigns two free slots in its configured **1–162** range. The ESP32 must actually create the corresponding templates on the AS608; a successful database insert alone cannot create a physical template. After the required steps complete, the user's status changes to `ACTIVE`.
 
 ### Enrollment timeout
 
-Enrollment uses a separate, longer session from authentication. Earlier implementation snapshots initialize enrollment sessions at **300 seconds (five minutes)**, but some reenrollment versions use different deadlines. Confirm the final deployed `enrollment_service.py` for the exact reenrollment deadline and whether successful steps refresh the expiry before relying on a uniform timeout in firmware.
+In the available enrollment implementation, **initial enrollment and all three reenrollment modes receive a fixed 300-second (five-minute) deadline when the session is created**. Completing an individual RFID, face, or fingerprint step does not refresh this deadline. Authentication has its own, shorter 60-second deadline. If you change either policy in the code, update the firmware expectations and this section together.
 
-## Reenrollment
+## Credential reenrollment
 
-An administrator can request replacement of `FACE`, `RFID`, or `FINGERPRINT`. For an active user with a pending request, `/kiosk/id-pin` routes to `REENROLLMENT` rather than normal authentication and supplies `credential_type` and `next_step`.
+An administrator can request `RFID`, `FACE`, or `FINGERPRINT` reenrollment. At the next ID/PIN entry, the kiosk receives `flow: REENROLLMENT`, the requested `credential_type`, an `enrollment_session_id`, and the next required step.
 
-- **Face:** take five replacement captures and update the stored representation upon successful completion.
-- **RFID:** read a replacement card, validate UID uniqueness, and update the credential.
-- **Fingerprint:** keep the old sensor templates while enrolling two replacements in new slots. The workflow then requests old-template deletion and an ESP32 confirmation before retiring the old database mappings.
+- **RFID:** read and validate the replacement card UID.
+- **Face:** repeat the five-image capture sequence and replace the stored representation on completion.
+- **Fingerprint:** allocate two new slots and keep the old templates until the replacement process reaches its deletion step.
 
-**Fingerprint replacement is not the same as crash recovery.** Losing connectivity after a physical sensor write or delete can leave the sensor and database out of sync. The [hardware recovery proposal](../hardware/docs/FINGERPRINT_RECOVERY_PROPOSAL.md) documents this concern. Automatic recovery/receipt application should not be described as completed unless the final firmware and backend implementations have both been verified. Confirm physical slots before any destructive deletion test.
+Fingerprint replacement is a two-system operation: the backend manages database mappings while the AS608 manages physical templates. The flow requests deletion of the old physical slots and waits for `/enroll/fingerprint/confirm-old-deleted` before retiring the old mappings. **This planned replacement sequence should not be confused with automatic recovery after an unexpected restart or lost response.** The [hardware recovery proposal](../hardware/docs/FINGERPRINT_RECOVERY_PROPOSAL.md) discusses that separate problem. The recovery-application switch was disabled during the reported integration stage; do not assume automatic reconciliation is active without a later verified test.
 
 ## API and kiosk contract
 
-ESP-facing requests require `X-Device-Key`. JSON requests also use `Content-Type: application/json`; face uploads are multipart requests.
+All ESP-facing requests send `X-Device-Key`. JSON requests use `Content-Type: application/json`; image uploads use `multipart/form-data`. The ESP creates a new `request_id` for each HTTP request, and the backend echoes it so the firmware can ignore stale responses.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /kiosk/id-pin` | Check ID/PIN and select the correct workflow |
+| `POST /kiosk/id-pin` | Route an employee ID and PIN to the appropriate workflow |
 | `POST /auth/rfid` | Begin RFID-first authentication |
-| `POST /auth/face` | Verify a face for an existing auth session |
-| `POST /auth/fingerprint` | Verify the matched sensor slot |
-| `POST /enroll/rfid` | Enroll or replace an RFID credential |
-| `POST /enroll/face` | Process an enrollment face capture |
-| `POST /enroll/fingerprint` | Enroll replacement or first-time fingerprint slots |
-| `POST /enroll/fingerprint/confirm-old-deleted` | Confirm old physical templates were deleted |
-| `POST /admin/login` | Obtain an administrator JWT |
+| `POST /auth/face` | Verify a face for an authentication session |
+| `POST /auth/fingerprint` | Check the matched fingerprint slot |
+| `POST /enroll/rfid` | Enroll or replace an RFID UID |
+| `POST /enroll/face` | Process a face enrollment capture |
+| `POST /enroll/fingerprint` | Process an assigned fingerprint slot |
+| `POST /enroll/fingerprint/confirm-old-deleted` | Confirm old physical fingerprint slots were deleted |
+| `POST /admin/login` | Verify administrator credentials and issue a JWT |
 
-The ESP supplies a fresh `request_id` for each request; the backend echoes it. Firmware can use this to discard stale responses. **Normal authentication** uses `session_id`; **enrollment and reenrollment** use `enrollment_session_id`.
+A normal authentication flow uses `session_id`; enrollment and reenrollment use `enrollment_session_id`. The returned `flow` is `AUTHENTICATION`, `ENROLLMENT`, or `REENROLLMENT`. Possible `next_step` values include `RFID`, `FACE`, `FINGERPRINT`, `DELETE_OLD_FINGERPRINTS`, and `COMPLETE`.
 
-Typical flow values are `AUTHENTICATION`, `ENROLLMENT`, and `REENROLLMENT`; `next_step` can request `RFID`, `FACE`, `FINGERPRINT`, `DELETE_OLD_FINGERPRINTS`, or `COMPLETE`. Consult [`/docs`](http://127.0.0.1:8000/docs) on a running local instance for current request fields and schemas. The development-only `/auth/pin` and `/enroll/start` entry points, if retained, are not the normal kiosk entry path.
+### Example: ID/PIN starts enrollment
 
-## Security
+**Request** to `POST /kiosk/id-pin`:
 
-Administrator endpoints require a JWT bearer token, while device-facing endpoints require a separate `X-Device-Key`. PINs and administrator passwords are stored as hashes. The `.env` file is excluded from Git; `.env.example` contains configuration names only.
+```http
+X-Device-Key: <DEVICE_API_KEY>
+Content-Type: application/json
+```
 
-The current static device key authenticates the **kiosk client**, but individual auth sessions and fingerprint mappings are **not explicitly bound to a device identity**. The design assumes one kiosk. The backend also does not implement dedicated face liveness detection.
+```json
+{
+  "employee_id": "00003",
+  "pin": "1234",
+  "request_id": "test-001"
+}
+```
+
+**Response**, based on a successful cloud integration test (the IDs are illustrative):
+
+```json
+{
+  "success": true,
+  "user_id": 3,
+  "enrollment_session_id": "e7f7f07b-99e8-43b6-9145-277c85686348",
+  "current_step": "RFID",
+  "next_step": "RFID",
+  "flow": "ENROLLMENT",
+  "request_id": "test-001"
+}
+```
+
+The firmware should retain the returned `enrollment_session_id` and send it in subsequent enrollment requests. It should **not** substitute an authentication `session_id`.
+
+### Example: face upload
+
+`POST /auth/face` uses these exact multipart form fields: `request_id`, `session_id`, and `image`.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/auth/face" \
+  -H "X-Device-Key: YOUR_DEVICE_API_KEY" \
+  -F "request_id=test-002" \
+  -F "session_id=SESSION_ID_FROM_FIRST_FACTOR" \
+  -F "image=@capture.jpg;type=image/jpeg"
+```
+
+For `POST /enroll/face`, use `enrollment_session_id` **instead of** `session_id`, along with `request_id` and `image`.
+
+### Example: invalid face image
+
+The face endpoint returns an application-level failure if OpenCV cannot decode the submitted image:
+
+```json
+{
+  "success": false,
+  "reason": "INVALID_IMAGE",
+  "request_id": "test-002",
+  "flow": "AUTHENTICATION",
+  "session_id": "SESSION_ID_FROM_FIRST_FACTOR"
+}
+```
+
+This example illustrates the failure shape, not a complete catalog of error codes. An expired session may already have been removed and produce `UNKNOWN_SESSION_ID`; consult the running API's [`/docs`](http://127.0.0.1:8000/docs) and current service code for exact request schemas and other failure reasons.
+
+## Administrator and device security
+
+`POST /admin/login` checks credentials and issues a JWT. **Protected administrator endpoints** require `Authorization: Bearer <JWT>`. The ESP32 uses the separate `X-Device-Key` header and does not use an administrator token.
+
+Administrator passwords and user PINs are stored as hashes. Secrets are read from the environment, not from committed configuration files. This prototype uses one device key for its single kiosk; sessions and fingerprint-slot mappings are **not explicitly tied to a separate device ID**. The backend also does not implement dedicated face liveness or photo-attack detection.
 
 ## Deployment and testing
 
-The API and PostgreSQL were deployed as separate Railway services. The static dashboard is served by FastAPI on the same domain, and headless OpenCV is used for server-side image processing.
+The API and PostgreSQL were deployed as separate Railway services. FastAPI serves the static dashboard from `/dashboard`, so the browser and API can share one origin. Headless OpenCV is used for server-side image processing.
 
-The project was first exercised locally and through Swagger, then tested against the cloud database. Physical integration later exercised ESP32 Wi-Fi, Nextion responses, fingerprint interaction, camera uploads, and the main authentication/enrollment state transitions. An ESP camera integration issue encountered during testing was resolved.
+The backend was tested locally and through Swagger before the cloud database was connected. Cloud tests covered administrator login, new-user enrollment, transition to `ACTIVE`, authentication, and access-attempt history. The subsequent hardware integration exercised ESP32 Wi-Fi, Nextion responses, fingerprint interaction, face-image uploads, and the main workflow transitions; an initial camera issue was resolved during testing.
 
-These tests confirm the main **prototype integration path**; they are not evidence of automatic fingerprint crash recovery, production availability, protection against photo-based attacks, or independently sensed door opening.
+The tests establish that the **main prototype path works**, not that every crash-recovery scenario, anti-spoofing attack, or physical door-opening outcome has been independently validated.
 
-## Limitations
+## Known limitations
 
-- Sessions are in memory and are lost on process restart; this design is not suitable for multiple independent backend workers without shared session storage.
-- The project assumes one kiosk and does not use per-device session binding.
-- Dedicated face liveness detection is not implemented.
-- Upload limits, malformed-image handling, inference concurrency, rate limiting, and abandoned-enrollment cleanup are areas for further hardening.
-- Authentication approval is logged separately from any physical proof of door actuation.
-- Recovery after interrupted fingerprint writes/deletions requires separate implementation and integration validation.
+- Authentication and enrollment sessions are in memory and do not survive process restarts or support independent backend workers without shared storage.
+- The current deployment assumes one kiosk and does not bind sessions to individual device identities.
+- Face verification does not perform dedicated liveness detection.
+- Image-size limits, inference concurrency, rate limiting, and cleanup of all credentials from abandoned enrollment are areas for future hardening.
+- Backend approval is logged separately from physical proof that the door opened.
+- Automatic recovery from interrupted fingerprint writes or deletions requires separate end-to-end validation.
 
-## Related documentation
-
-- [Admin Dashboard](../dashboard/README.md)
-- [Database and ERD](../database/README.md)
-- [Face Recognition Evaluation](../ml/README.md)
-- [Hardware and Firmware](../hardware/README.md)
