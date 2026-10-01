@@ -1,17 +1,17 @@
 # Biometric Access Control System
 
+A single-kiosk access-control prototype combining an **ESP32-S3**, RFID, a Nextion touchscreen, face recognition, and fingerprint verification. The ESP32 handles the sensors and user interaction, while a cloud-hosted **FastAPI** backend manages users, verifies credentials, coordinates enrollment, and records access attempts in **PostgreSQL**.
 
-A single-kiosk access-control prototype combining an ESP32-S3, RFID, a touchscreen, face recognition, and fingerprint verification. The ESP32 manages the hardware and user interface, while a cloud-hosted backend manages users, verifies credentials, and records access attempts.
+The project brings together embedded firmware, physical access-control hardware, biometric verification, and a browser-based administrator dashboard. The hardware and software were developed as a connected prototype rather than as separate demonstrations.
 
 ## How It Works
 
-A user starts by scanning an RFID card or entering an employee ID and PIN on the Nextion display. The backend checks the request and randomly selects face or fingerprint verification as the second factor. After successful two-factor authentication, the ESP32 activates a relay for a timed lock-release pulse.
+A user starts by scanning an RFID card or entering a **five-digit employee ID and four-digit PIN** on the touchscreen. Once the first factor is accepted, the backend randomly selects **face** or **fingerprint** verification as the second factor. The ESP32 follows the backend's response to complete the requested step and handle the authentication result.
 
-The system uses a distributed approach for biometric processing:
--   **Face Recognition**: The ESP32 captures a JPEG, performs initial validation (detecting a single face), and crops it. The backend then uses a pre-trained InsightFace model to generate a face embedding and compares it to the user's stored embedding.
--   **Fingerprint Matching**: The AS608 sensor matches a user's fingerprint locally against templates stored on the device. It returns the matched template slot number to the backend, which verifies that the slot belongs to the authenticated user.
+- **Face verification:** The ESP32 captures a JPEG image, performs initial face checks and cropping, and uploads the image to the backend. InsightFace produces a face embedding, which is compared with the enrolled representation for the expected user.
+- **Fingerprint verification:** The AS608 sensor stores and matches fingerprint templates locally. It returns the matched template slot, and the backend verifies that the slot belongs to the user identified by the first factor.
 
-First-time enrollment follows the sequence: **RFID → Five Face Captures → Two Fingerprints**. The system also supports re-enrollment for existing users to replace a specific credential (card, face, or fingerprints).
+First-time enrollment follows **RFID → five face captures → two fingerprints**. Administrators can also request replacement of an existing user's RFID card, face credential, or fingerprints. The replacement itself takes place at the kiosk.
 
 ```text
                     Administrator
@@ -20,144 +20,167 @@ First-time enrollment follows the sequence: **RFID → Five Face Captures → Tw
                          | JWT
                          v
 ESP32 kiosk ------> FastAPI backend <------> PostgreSQL
- RFID / PIN        services and state        users / credentials
- AS608             |                       sessions / access logs
- camera            +--> OpenCV / InsightFace
- Nextion           |        face verification
-                  +--> next_step response --> ESP32
+RFID / ID + PIN     API and workflow        Users / credentials
+AS608 / camera      In-memory sessions      Admins / access logs
+Nextion screen            |
+                          +---> OpenCV / InsightFace
+                          |     Face verification
+                          |
+                          +---> flow + next_step ---> ESP32
 ```
 
-## Hardware Used
+Authentication and enrollment sessions are held in backend memory; they are not stored in PostgreSQL. The database stores fingerprint **slot mappings**, while the actual fingerprint templates remain on the AS608 sensor.
 
-| Component                        | Role                                                                |
-| -------------------------------- | ------------------------------------------------------------------- |
-| **Freenove ESP32-S3-WROOM**      | Main controller; runs firmware and connects to backend via Wi-Fi.     |
-| **OV3660 Camera**                | Captures face images via the board's camera connector.              |
-| **Nextion NX3224F028_011**       | 2.8-inch touchscreen for UI, ID/PIN entry, and prompts.             |
-| **RC522 RFID Reader**            | Reads card UIDs for authentication and enrollment.                  |
-| **AS608 Fingerprint Sensor**     | Captures, stores, and matches fingerprint templates.                |
-| **5V Relay Module**              | Switches the lock's separate 12V power circuit.                     |
-| **12V Solenoid Lock**            | Demonstrates the physical lock-release action.                      |
-| **S8050 NPN Transistor**         | Interfaces the ESP32's output with the relay input.                 |
-| **Resistors (1kΩ, 10kΩ)**        | Set transistor drive and relay-input bias.                          |
-| **1N4007 Diode**                 | Provides flyback suppression for the solenoid coil.                 |
-| **HW-131 Power Module**          | Provides 3.3V and 5V rails for peripherals.                         |
-| **Adapters & Wires**             | USB for the controller, 12V for the lock, and breadboard wiring.    |
+## Prototype Photos and Screenshots
 
-Refer to the [pinout and power notes](hardware/wiring/PINOUT_AND_POWER.md) for detailed connection and electrical safety information.
+### Hardware Prototype
+
+The prototype connects the ESP32-S3 camera board, RC522 RFID reader, AS608 fingerprint sensor, Nextion display, and relay/solenoid circuit through a breadboard-based setup.
+
+| Connected prototype | Wiring and component layout |
+|:---:|:---:|
+| ![Connected access-control prototype with ESP32, sensors and display](images/prototype-assembled.jpg) | ![Breadboard wiring, RFID reader, fingerprint sensor, relay, camera board and Nextion display](images/prototype-wiring.jpg) |
+
+For pin assignments and power distribution, see the [hardware wiring documentation](hardware/wiring/PINOUT_AND_POWER.md).
+
+### Nextion Touchscreen
+
+The display provides the RFID/ID entry options, on-screen keypad, and feedback while the kiosk waits for verification.
+
+| Start screen | Employee ID entry | Verification |
+|:---:|:---:|:---:|
+| ![Nextion touchscreen asking for an RFID card or ID and PIN](images/nextion-start.jpg) | ![Nextion employee ID keypad](images/nextion-id-entry.jpg) | ![Nextion verification screen](images/nextion-verifying.jpg) |
+
+### Administrator Dashboard
+
+The dashboard is used to create accounts, review user status, request credential reenrollment, inspect access attempts, and change the administrator password. It communicates with FastAPI rather than directly with the sensors.
+
+**User management and credential actions**
+
+| Create a user and view accounts | Edit, deactivate, or request reenrollment |
+|:---:|:---:|
+| ![Dashboard showing new-user creation and the users table](images/dashboard-users.jpg) | ![Dashboard user action menu with credential replacement options](images/dashboard-user-actions.jpg) |
+
+**Login and access history**
+
+| Administrator login | Recorded access attempts |
+|:---:|:---:|
+| ![Administrator login form](images/dashboard-login.jpg) | ![Access-attempt history with authentication factors, results and failure reasons](images/dashboard-access-attempts.jpg) |
+
+**Administrator settings**
+
+![Administrator settings page for changing the account password](images/dashboard-settings.jpg)
+
+## Hardware
+
+| Component | Role |
+| --- | --- |
+| Freenove ESP32-S3-WROOM | Main controller, firmware execution, and Wi-Fi connection |
+| ESP32-compatible camera module | Captures face images for upload to the backend |
+| Nextion touchscreen | RFID/ID entry, PIN entry, prompts, and verification feedback |
+| RC522 RFID reader | Reads RFID card UIDs |
+| AS608 fingerprint sensor | Enrolls, stores, and matches fingerprint templates |
+| 5 V relay module and 12 V solenoid lock | Physical lock-release hardware |
+| S8050 NPN transistor, resistors, and 1N4007 diode | Relay interface and flyback protection |
+| HW-131 power module, adapters, and wiring | Power distribution and connections |
+
+The exact pinout, electrical notes, firmware, and display project are documented in [`hardware/`](hardware/README.md).
 
 ## Software
 
-| Area                    | Tools and Implementation                                |
-| ----------------------- | ------------------------------------------------------- |
-| **Embedded Firmware**   | C++, Arduino-ESP32, FreeRTOS, PlatformIO in VS Code       |
-| **Display Project**     | Nextion Editor                                          |
-| **Backend API**         | Python, FastAPI                                         |
-| **Face Recognition**    | InsightFace, OpenCV, NumPy                              |
-| **Database**            | PostgreSQL                                              |
-| **Admin Dashboard**     | HTML, CSS, and JavaScript                               |
-| **Communication**       | HTTPS, JSON, Multipart JPEG uploads, and Serial (Nextion) |
+| Area | Tools |
+| --- | --- |
+| ESP32 firmware | C++, Arduino-ESP32, FreeRTOS, PlatformIO |
+| Touchscreen | Nextion Editor |
+| Backend API | Python, FastAPI, Uvicorn |
+| Face verification | InsightFace, OpenCV, NumPy, ONNX Runtime |
+| Database | PostgreSQL, psycopg |
+| Administrator dashboard | HTML, CSS, JavaScript |
+| Communication | HTTPS, JSON, multipart JPEG uploads, and Nextion serial communication |
+| Cloud deployment | Railway |
 
 ## Repository Structure
 
 | Directory | Contents |
 | --- | --- |
-| [`backend/`](./backend/) | FastAPI API routes, authentication, enrollment, and user-management services. |
-| [`dashboard/`](./dashboard/) | Browser-based administration interface for managing users and viewing access logs. |
-| [`database/`](./database/) | PostgreSQL schema (`schema.sql`) and an entity-relationship diagram. |
-| [`hardware/`](./hardware/) | ESP32 firmware, Nextion HMI project, wiring notes, and hardware documentation. |
-| [`ml/`](./ml/) | Jupyter notebooks and documentation related to face-recognition evaluation. |
+| [`backend/`](backend/README.md) | FastAPI routes, authentication and enrollment services, administrator functions, and cloud setup |
+| [`dashboard/`](dashboard/README.md) | Administrator interface and its integration with the API |
+| [`database/`](database/README.md) | PostgreSQL schema and entity-relationship diagram |
+| [`hardware/`](hardware/README.md) | ESP32 firmware, Nextion HMI project, wiring, and hardware documentation |
+| [`ml/`](ml/README.md) | Face-recognition methodology, two offline experiments, graphs, and threshold selection |
+| [`images/`](images/) | Prototype photographs and interface screenshots shown above |
 
 ## Setup and Installation
 
+The backend was deployed with **Python 3.13** and uses the dependency versions pinned in [`requirements.txt`](requirements.txt). Run the Python commands from the **repository root**.
+
 ### Prerequisites
-- Git
-- Python 3.8+ and `venv`
-- PostgreSQL server
-- [PlatformIO IDE for VS Code](https://platformio.org/install/ide?install=vscode)
-- [Nextion Editor](https://nextion.tech/nextion-editor/)
 
-### 1. Database Setup
-1.  Create a new PostgreSQL database.
-2.  Apply the schema using the `psql` client or another tool:
-    ```bash
-    psql -h YOUR_HOST -U YOUR_USER -d YOUR_DB_NAME -f database/schema.sql
-    ```
+- Git, Python 3.13, and PostgreSQL
+- [PlatformIO for VS Code](https://platformio.org/install/ide?install=vscode) to build and upload the ESP32 firmware
+- [Nextion Editor](https://nextion.tech/nextion-editor/) to compile the touchscreen project
 
-### 2. Backend Setup
-1.  Navigate to the repository root and create a Python virtual environment:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # On Windows, use: .\.venv\Scripts\Activate.ps1
-    ```
-2.  Install the required dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  Create a `.env` file by copying `.env.example` and fill in your database credentials and secrets:
-    ```bash
-    cp .env.example .env
-    # Edit .env with your configuration
-    ```
-4.  The system requires an admin user for the dashboard. A creation script is not provided, but you can add one to the `admin_user` table manually or by extending `admin_service.py`.
-5.  Start the backend server:
-    ```bash
-    uvicorn backend.main:app --reload
-    ```
-    The API will be available at `http://127.0.0.1:8000`.
+### 1. Clone the Repository
 
-### 3. Hardware and Firmware
-1.  **Firmware:**
-    - Open the `hardware/firmware/` directory in VS Code with the PlatformIO extension.
-    - Copy `hardware/firmware/src/secrets.h.example` to `hardware/firmware/src/secrets.h`.
-    - Edit `secrets.h` to add your Wi-Fi credentials and the `DEVICE_API_KEY` you set in the `.env` file.
-    - Use PlatformIO to build and upload the firmware to your ESP32-S3 board.
+```bash
+git clone https://github.com/mjdakkak/Biometric_Access_Control_System.git
+cd Biometric_Access_Control_System
+```
 
-2.  **Nextion Display:**
-    - Open `hardware/nextion/nextionScreen.HMI` in the Nextion Editor.
-    - Compile the project to generate a `.tft` file.
-    - Copy the `.tft` file to a FAT32-formatted microSD card and use it to flash the display.
+### 2. Set Up PostgreSQL
 
-### 4. Accessing the System
-- Once the backend is running, the administrator dashboard is available at `http://127.0.0.1:8000/dashboard/login.html`.
-- The ESP32 kiosk will connect to the Wi-Fi and backend API automatically on startup.
+Create an empty PostgreSQL database and apply the [database schema](database/schema.sql):
+
+```bash
+psql -h YOUR_HOST -U YOUR_USER -d YOUR_DB_NAME -f database/schema.sql
+```
+
+The schema creates the tables and employee-ID sequence. It does not create an administrator account or enroll physical credentials. See the [database README](database/README.md) for details.
+
+### 3. Set Up the Backend
+
+Create a virtual environment and install the project's dependencies:
+
+```bash
+python -m venv .venv
+python -m pip install -r requirements.txt
+```
+
+Activate the environment before installing or running the application: on Windows PowerShell use `.\.venv\Scripts\Activate.ps1`; on Linux or macOS use `source .venv/bin/activate`.
+
+Copy [`.env.example`](.env.example) to `.env` and configure the PostgreSQL connection, `JWT_SECRET`, and `DEVICE_API_KEY`. Do not commit real passwords or API keys. Create the first administrator using the local procedure in the [backend setup guide](backend/README.md#4-create-the-first-administrator).
+
+Start the application:
+
+```bash
+python -m uvicorn backend.main:app --reload
+```
+
+The API runs at `http://127.0.0.1:8000`. Open `/docs` for the interactive API reference and `/dashboard/login.html` for the administrator login page.
+
+### 4. Set Up the Kiosk
+
+Open [`hardware/firmware/`](hardware/firmware/) in VS Code with PlatformIO. Copy `hardware/firmware/src/secrets.h.example` to `hardware/firmware/src/secrets.h`, then configure the Wi-Fi credentials, backend URL, and device API key. Build and upload the firmware to the ESP32-S3.
+
+Open [`hardware/nextion/nextionScreen.HMI`](hardware/nextion/nextionScreen.HMI) in Nextion Editor and compile the display project. Follow the [hardware setup instructions](hardware/README.md) to load it onto the touchscreen and connect the peripherals.
+
+## Testing and Results
+
+The API workflows were tested before integrating the physical kiosk. Hardware integration then covered input from the Nextion display, RFID, fingerprint enrollment and matching, camera capture and upload, backend workflow responses, user activation, and access-attempt logging. The relay and solenoid are part of the hardware prototype; a backend authentication `SUCCESS` is an approval decision and, by itself, is not proof of physical lock actuation.
+
+Face verification was evaluated separately using the **CMU Multi-PIE** dataset. Two offline experiments compared embedding distances for images of the same person and of different people, with the second experiment introducing greater image variation. The [ML evaluation README](ml/README.md) includes the numerical results, graphs, and the distinction between the experimental threshold and the setting used by the deployed backend.
+
+For hardware integration notes, see the [test-status document](hardware/docs/TEST_STATUS.md).
 
 ## Project Roles
-- **Electrical and Embedded:** Firmware development, sensor integration, display communication, power distribution, and relay/lock control.
-- **Backend and Application Software:** API design, database schema, administration dashboard, and server-side face verification logic.
+
+This was a collaborative hardware/software project with the following division of responsibilities:
+
+- **Electrical and embedded systems:** ESP32 firmware, sensor integration, Nextion communication, wiring and power distribution, and relay/lock control.
+- **Backend and application software:** FastAPI services, PostgreSQL schema, administrator dashboard, server-side face verification and ML evaluation, and Railway deployment.
 
 ## Status and Scope
-This project is a **functional single-kiosk prototype**. Core features, including RFID/PIN entry, face/fingerprint enrollment and authentication, and lock actuation, have passed functional testing.
 
-**Out of Scope for MVP:**
-- Automated recovery for interrupted fingerprint operations.
-- Remote unlocking from the administrator dashboard.
-- Low-power or wake-on-event modes.
+This is a **functional single-kiosk prototype**, developed to demonstrate credential enrollment, two-factor authentication, user administration, and coordination between physical sensors and a cloud backend. It is not certified for security-critical building access.
 
-This system is a proof-of-concept and is not certified for use as a security-critical building access installation.
-
-## Project Photos
-
-### Hardware and Wiring
-
-*Photo to be added.*
-
-<!-- After uploading the photo, replace the line above with:
-![Prototype hardware and wiring](images/wiring.jpg)
--->
-
-### Nextion Interface
-
-*Photo to be added.*
-
-<!-- After uploading the screenshot, replace the line above with:
-![Nextion touchscreen interface](images/nextion.jpg)
--->
-
-### Administration Dashboard
-
-*Screenshot to be added.*
-
-<!-- After uploading the screenshot, replace the line above with:
-![Administration dashboard](images/dashboard.png)
--->
+The current version does not include remote unlocking from the dashboard, dedicated face-liveness detection, or automatic recovery from every interrupted fingerprint operation. Temporary sessions are held in backend memory and are lost if the server restarts. The [backend](backend/README.md) and [hardware](hardware/README.md) documentation describe the implementation and integration details.
