@@ -1,1322 +1,215 @@
-
 # Face Recognition Evaluation
 
-This folder documents the evaluation of the face-recognition component used by the biometric access control system.
+This folder documents how the project evaluated **face verification** before integrating it with the biometric access control system. It uses the pretrained InsightFace `buffalo_l` model; **no neural network was trained from scratch**. The work focused on extracting face embeddings, comparing images of the same and different people, examining the distance distributions, and selecting a practical backend threshold.
 
-Rather than training a new neural network, the project uses a pretrained InsightFace model to generate facial embeddings. The experiments in this folder were designed to answer a practical engineering question:
+The two graphs below are **distance-distribution plots**, not training or accuracy graphs. They show what happened with the images evaluated in these experiments, not how the model will perform for every person or camera condition.
 
-> Can embeddings produced for the same person be reliably separated from embeddings produced for different people, and what Euclidean-distance threshold is appropriate for this system?
+## Contents
 
-The experiments compare **genuine** and **impostor** face distances under increasingly difficult image conditions.
+- [Role in the access-control system](#role-in-the-access-control-system)
+- [How verification works](#how-verification-works)
+- [Experiment 1: controlled conditions](#experiment-1-controlled-conditions)
+- [Experiment 2: increased variation](#experiment-2-increased-variation)
+- [Comparison and threshold selection](#comparison-and-threshold-selection)
+- [Deployed enrollment and authentication](#deployed-enrollment-and-authentication)
+- [What the experiments establish](#what-the-experiments-establish)
+- [Limitations and next steps](#limitations-and-next-steps)
 
-The results were then used to guide the verification threshold implemented in the backend.
+## Role in the access-control system
 
----
+Face recognition is one possible **second authentication factor**. The first factor—RFID, or the fallback employee ID and PIN—establishes the expected user. The backend randomly chooses `FACE` or `FINGERPRINT`, and if face is selected, it compares the captured image only against that user's enrollment representation. This is **one-to-one verification**, rather than identifying an unknown person from every record in the database.
 
-## Files
-
-```text
-ml/
-├── README.md
-├── experiment_1_controlled_face_distances.png
-└── experiment_2_varied_lighting_face_distances.png
-```
-
-### `experiment_1_controlled_face_distances.png`
-
-Evaluation under relatively controlled image conditions.
-
-### `experiment_2_varied_lighting_face_distances.png`
-
-Evaluation with greater variation between images, producing a more difficult same-person verification problem.
-
----
-
-# Role of Face Recognition in the System
-
-Face recognition is used as one possible **second authentication factor**.
-
-The complete authentication flow is approximately:
-
-```text
-RFID
-or
-Employee ID + PIN
-        ↓
-First factor accepted
-        ↓
-Backend randomly selects:
-FACE or FINGERPRINT
-        ↓
-Face image captured by ESP32
-        ↓
-Image sent to FastAPI backend
-        ↓
-InsightFace embedding generated
-        ↓
-Euclidean distance calculated
-        ↓
-Threshold decision
-        ↓
-Authentication accepted or rejected
-```
-
-The face model therefore does not independently determine who a person is.
-
-The backend already knows which user is attempting authentication from the first factor.
-
-Face recognition is used to answer:
-
-```text
-Does this face match the enrolled face
-for the expected user?
-```
-
-This makes the task a **one-to-one verification problem**, rather than a one-to-many face identification problem.
-
----
-
-# Face Embeddings
-
-The system uses InsightFace with the:
-
-```text
-buffalo_l
-```
-
-model package.
-
-For each detected face, InsightFace produces a numerical representation called a **face embedding**.
-
-The embedding represents facial characteristics in a high-dimensional feature space.
-
-In this project, the embedding contains:
-
-```text
-512 dimensions
-```
-
-Two photographs do not need to have identical pixel values to produce similar embeddings.
-
-Instead, images belonging to the same person should generally be located closer together in embedding space than images belonging to different people.
-
----
-
-# Normalized Embeddings
-
-The experiments use normalized InsightFace embeddings.
-
-Normalization makes the embeddings comparable on a consistent scale and prevents the magnitude of the vector itself from dominating the distance measurement.
-
-Conceptually, an embedding can be represented as:
-
-```text
-e = [e1, e2, e3, ..., e512]
-```
-
-The system compares facial representations rather than raw images.
-
----
-
-# Euclidean Distance
-
-Similarity is measured using Euclidean distance.
-
-For two embeddings:
-
-```text
-A = [a1, a2, ..., an]
-B = [b1, b2, ..., bn]
-```
-
-the Euclidean distance is:
-
-```text
-d(A,B) = √Σ(ai - bi)²
-```
-
-The interpretation is:
-
-```text
-smaller distance
-→ embeddings are more similar
-
-larger distance
-→ embeddings are less similar
-```
-
-For face verification:
-
-```text
-small distance
-→ more evidence that the faces belong to the same person
-
-large distance
-→ more evidence that the faces belong to different people
-```
-
-The backend therefore performs a threshold decision:
-
-```text
-distance <= threshold
-→ accept
-
-distance > threshold
-→ reject
-```
-
----
-
-# Genuine and Impostor Comparisons
-
-The experiments divide face comparisons into two categories.
-
-## Genuine comparisons
-
-A genuine comparison contains two images of the **same identity**.
-
-Example:
-
-```text
-Person A — image 1
-vs.
-Person A — image 2
-```
-
-The desired behavior is:
-
-```text
-LOW DISTANCE
-```
-
-because both embeddings should represent the same person.
-
----
-
-## Impostor comparisons
-
-An impostor comparison contains images from **different identities**.
-
-Example:
-
-```text
-Person A
-vs.
-Person B
-```
-
-The desired behavior is:
-
-```text
-HIGH DISTANCE
-```
-
-because the embeddings represent different people.
-
----
-
-# What the Experiments Are Testing
-
-The most important question is not simply whether genuine distances are "small."
-
-The important question is whether the two groups are separated:
-
-```text
-GENUINE DISTANCES
-
-        gap
-
-IMPOSTOR DISTANCES
-```
-
-If the largest genuine distances remain smaller than the smallest impostor distances, then a threshold can potentially be placed between the two populations.
-
-For example:
-
-```text
-0.2       0.5       0.8       1.1       1.4
-
-Genuine
-████████████████
-
-                              ███████████████
-                              Impostor
-```
-
-A threshold can then be placed in the empty region between them.
-
----
-
-# Experiment 1 — Controlled Conditions
-
-![Experiment 1 — Controlled Face Distances](experiment_1_controlled_face_distances.png)
-
-Experiment 1 evaluates InsightFace under relatively controlled image conditions.
-
-The purpose of this experiment was to establish a baseline.
-
-If the model could not clearly distinguish same-person and different-person comparisons under controlled conditions, it would not be appropriate to proceed to more difficult conditions.
-
----
-
-## Dataset
-
-The experiment used:
-
-```text
-249 subjects
-```
-
-For each subject, five views were selected:
-
-```text
-051
-140
-050
-130
-041
-```
-
-The selected samples used lighting condition:
-
-```text
-06
-```
-
-Using multiple views allowed the experiment to introduce pose variation while maintaining relatively consistent imaging conditions.
-
----
-
-# Experiment 1 Procedure
-
-For each selected face image:
-
-1. the image was loaded
-2. InsightFace detected the face
-3. the model generated a normalized embedding
-4. embeddings belonging to the same subject were compared
-5. embeddings belonging to different subjects were compared
-6. Euclidean distances were recorded
-
-The comparisons were then separated into:
-
-```text
-genuine distances
-impostor distances
-```
-
----
-
-# Number of Comparisons
-
-The experiment generated:
-
-```text
-2,490 genuine comparisons
-```
-
-and:
-
-```text
-771,900 impostor comparisons
-```
-
-The impostor count is much larger because each identity can be compared against many other identities.
-
-The goal was not to artificially balance the number of comparisons.
-
-Instead, the experiment calculated the available relationships between the selected embeddings.
-
----
-
-# Experiment 1 Results
-
-## Genuine distances
-
-```text
-Minimum: 0.2734525
-Maximum: 0.81328243
-Average: 0.48621723
-```
-
-## Impostor distances
-
-```text
-Minimum: 1.0593255
-Maximum: 1.5783218
-Average: 1.3946716
-```
-
----
-
-# Interpreting Experiment 1
-
-The most important numbers are:
-
-```text
-Largest genuine distance:
-0.8133
-
-Smallest impostor distance:
-1.0593
-```
-
-The observed separation is therefore approximately:
-
-```text
-1.0593 - 0.8133
-≈ 0.246
-```
-
-This means that, within this experiment, there was an empty region of approximately:
-
-```text
-0.246 Euclidean-distance units
-```
-
-between the hardest same-person comparison and the closest different-person comparison.
-
-No overlap between genuine and impostor comparisons was observed.
-
----
-
-# Why the Maximum Genuine Distance Matters
-
-The average genuine distance was approximately:
-
-```text
-0.486
-```
-
-but authentication thresholds should not be selected using only the average.
-
-A threshold near the average would reject many legitimate images that are more difficult than the typical comparison.
-
-The more useful boundary is the upper end of the genuine distribution.
-
-Experiment 1 shows that a legitimate same-person comparison could reach approximately:
-
-```text
-0.813
-```
-
-even under the more controlled conditions.
-
----
-
-# Why the Minimum Impostor Distance Matters
-
-The average impostor distance was:
-
-```text
-1.395
-```
-
-but this is also not the most important value for threshold selection.
-
-The dangerous cases are not average impostors.
-
-The dangerous cases are the **closest different-person embeddings**.
-
-The minimum observed impostor distance was:
-
-```text
-1.059
-```
-
-This represents the different-person comparison that appeared most similar within the experiment.
-
-The threshold should therefore remain comfortably below this region.
-
----
-
-# Understanding the First Graph
-
-The first figure shows the distance behavior of genuine and impostor comparisons.
-
-The important feature of the graph is the separation between the two populations.
-
-The genuine comparisons occupy the lower-distance region because they represent the same identities.
-
-The impostor comparisons occupy the higher-distance region because they represent different identities.
-
-Conceptually:
-
-```text
-Distance →
-
-0.27                             0.81
-|--------------------------------|
-        Genuine comparisons
-
-
-                                     GAP
-
-
-                                           1.06                    1.58
-                                           |--------------------------|
-                                                 Impostor comparisons
-```
-
-This is the desired behavior for a verification system.
-
----
-
-# Experiment 2 — Increased Capture Variation
-
-![Experiment 2 — Varied Lighting Face Distances](experiment_2_varied_lighting_face_distances.png)
-
-Experiment 1 establishes that the model performs well when image conditions remain relatively controlled.
-
-However, an actual biometric kiosk does not operate under perfectly identical conditions.
-
-The authentication image may differ from the enrollment images because of:
-
-- lighting
-- pose
-- facial orientation
-- camera position
-- image quality
-- distance from the camera
-- minor changes in expression
-- capture timing
-
-Experiment 2 therefore increases variation between genuine samples.
-
----
-
-# Purpose of Experiment 2
-
-The second experiment asks a more important real-world question:
-
-> What happens to the genuine distance distribution when the same person looks less similar between captures?
-
-This matters because a threshold that performs well only under controlled conditions may reject legitimate users once deployed on physical hardware.
-
----
-
-# Experiment 2 Results
-
-The genuine comparisons became more difficult.
-
-The observed genuine values included:
-
-```text
-Maximum genuine distance: 0.906
-Average genuine distance: 0.589
-```
-
-The minimum observed impostor distance remained approximately:
-
-```text
-1.059
-```
-
-The separation therefore became:
-
-```text
-1.059 - 0.906
-≈ 0.153
-```
-
----
-
-# Comparison With Experiment 1
-
-The difference between the experiments is important.
-
-## Experiment 1
-
-```text
-Average genuine:   0.486
-Maximum genuine:   0.813
-Minimum impostor:  1.059
-Observed gap:      ~0.246
-```
-
-## Experiment 2
-
-```text
-Average genuine:   0.589
-Maximum genuine:   0.906
-Minimum impostor:  1.059
-Observed gap:      ~0.153
-```
-
-The genuine distribution moved toward larger distances.
-
-That is expected.
-
-More image variation makes two photographs of the same person appear less similar to the embedding model.
-
----
-
-# What the Second Graph Demonstrates
-
-The second graph is especially important because it demonstrates the reduction in safety margin as the capture conditions become more difficult.
-
-Conceptually:
-
-```text
-Experiment 1
-
-Genuine
-|-------------|
-
-                     LARGE GAP
-
-                              |----------------|
-                                  Impostor
-```
-
-Compared with:
-
-```text
-Experiment 2
-
-Genuine
-|------------------|
-
-                  SMALLER GAP
-
-                              |----------------|
-                                  Impostor
-```
-
-The model still separated the genuine and impostor comparisons in the evaluated data, but the margin was reduced.
-
-This is more representative of the challenge expected during hardware deployment.
-
----
-
-# Genuine Distribution Shift
-
-The genuine average increased from:
-
-```text
-0.486
-```
-
-to:
-
-```text
-0.589
-```
-
-The maximum genuine distance increased from:
-
 ```text
-0.813
+RFID or employee ID + PIN
+           |
+    Expected user known
+           |
+       FACE selected
+           |
+    ESP32 image upload
+           |
+     InsightFace model
+           |
+     Embedding comparison
+           |
+       Accept / reject
 ```
 
-to:
+## How verification works
 
-```text
-0.906
-```
-
-This demonstrates that environmental variation primarily affected the same-person comparisons by making them less tightly clustered.
-
-The experiment therefore supports the need for a threshold with enough tolerance to accommodate realistic changes in appearance and capture conditions.
-
----
-
-# Impostor Separation
-
-Despite the increased genuine variation, the closest observed impostor remained around:
-
-```text
-1.059
-```
-
-while the maximum genuine distance was:
-
-```text
-0.906
-```
-
-Therefore:
-
-```text
-0.906 < 1.059
-```
-
-and no genuine/impostor overlap was observed in the evaluated data.
-
----
-
-# Threshold Investigation
-
-The experiment figures include a candidate threshold around:
-
-```text
-0.93
-```
-
-This threshold was used during the experimental analysis to visualize a possible decision boundary.
-
-The final backend configuration uses:
-
-```text
-FACE_THRESHOLD = 0.95
-```
-
-The difference is intentional.
-
-The graphs represent the experimental threshold investigation.
-
-The deployed backend uses a slightly more permissive threshold to provide additional tolerance for real camera captures.
-
----
-
-# Why 0.95 Was Chosen
-
-The most difficult genuine comparison observed in Experiment 2 was approximately:
-
-```text
-0.906
-```
-
-The closest observed impostor comparison was approximately:
-
-```text
-1.059
-```
-
-The deployed threshold:
-
-```text
-0.95
-```
-
-lies between these values:
-
-```text
-0.906 < 0.95 < 1.059
-```
-
-This provides approximately:
-
-```text
-0.95 - 0.906
-= 0.044
-```
-
-of additional tolerance beyond the largest genuine distance observed in Experiment 2.
-
-At the same time, the threshold remains approximately:
-
-```text
-1.059 - 0.95
-= 0.109
-```
-
-below the closest observed impostor comparison.
-
-Conceptually:
-
-```text
-largest observed genuine
-        0.906
-
-           ↓
-
------------|----|----------------|-----------
-
-               0.95            1.059
-            threshold       closest impostor
-```
-
-The threshold therefore represents a tradeoff.
-
-Increasing the threshold provides more tolerance for legitimate variation but also moves the decision boundary closer to impostor comparisons.
-
-Decreasing the threshold provides more separation from impostors but increases the chance of rejecting legitimate users.
-
----
-
-# Threshold Is Project-Specific
-
-The value:
-
-```text
-0.95
-```
-
-should not be interpreted as a universal InsightFace threshold.
-
-Threshold behavior depends on factors such as:
-
-- model
-- preprocessing
-- embedding representation
-- distance metric
-- camera
-- dataset
-- enrollment procedure
-- environmental conditions
-
-The threshold was selected for this project using the observed development experiments.
-
-A production deployment would require substantially broader validation.
-
----
-
-# False Acceptance and False Rejection
-
-Threshold selection represents a balance between two types of errors.
-
-## False rejection
-
-A legitimate user is rejected.
-
-This can happen if:
-
-```text
-genuine distance > threshold
-```
-
-A threshold that is too strict increases this risk.
-
----
-
-## False acceptance
-
-A different person is incorrectly accepted.
-
-This could happen if:
-
-```text
-impostor distance <= threshold
-```
-
-A threshold that is too permissive increases this risk.
-
----
-
-# What These Experiments Do and Do Not Measure
-
-The experiments demonstrate the observed separation between genuine and impostor distances.
-
-They do **not** constitute a complete biometric benchmark.
-
-The project did not claim formal production values for metrics such as:
-
-```text
-FAR
-False Acceptance Rate
-
-FRR
-False Rejection Rate
-
-EER
-Equal Error Rate
-```
-
-The experimental results instead provide evidence that the selected embedding representation and distance metric produced useful separation for the evaluated data.
-
----
-
-# Experiment Summary
-
-| Experiment | Genuine Minimum | Genuine Average | Genuine Maximum | Impostor Minimum | Impostor Average | Impostor Maximum | Observed Gap |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Controlled conditions | 0.273 | 0.486 | 0.813 | 1.059 | 1.395 | 1.578 | ~0.246 |
-| Increased variation | — | 0.589 | 0.906 | ~1.059 | — | — | ~0.153 |
-
-Values that were not retained from the second experiment are intentionally not filled with estimates.
-
----
-
-# Multi-Image Enrollment
-
-The final system does not enroll a user using only one photograph.
-
-Instead, enrollment requires five face captures.
-
-The prompts are:
-
-```text
-LOOK_STRAIGHT
-TURN_SLIGHTLY_LEFT
-TURN_MORE_LEFT
-TURN_SLIGHTLY_RIGHT
-TURN_MORE_RIGHT
-```
-
-The purpose is to capture more variation in the user's appearance.
-
----
-
-# Enrollment Embedding Construction
-
-Each successful enrollment capture produces a normalized face embedding.
-
-Conceptually:
+### Face embeddings
 
-```text
-Capture 1 → embedding E1
-Capture 2 → embedding E2
-Capture 3 → embedding E3
-Capture 4 → embedding E4
-Capture 5 → embedding E5
-```
-
-The backend combines the five embeddings by averaging them:
-
-```text
-Enrollment embedding
-=
-(E1 + E2 + E3 + E4 + E5) / 5
-```
-
-This produces a representation based on multiple views rather than a single photograph.
-
-The motivation is to reduce sensitivity to one particular pose.
-
----
-
-# Why Multiple Head Positions Are Used
-
-A single frontal photograph may produce an excellent match when the authentication image is also frontal.
-
-However, a kiosk user will not reproduce the exact same pose every time.
-
-The five-capture process intentionally includes:
-
-```text
-center
-left variation
-additional left variation
-right variation
-additional right variation
-```
-
-This allows the stored enrollment representation to incorporate information from multiple orientations.
-
----
-
-# Enrollment Pipeline
-
-The deployed enrollment pipeline is approximately:
-
-```text
-ESP32 camera
-     ↓
-capture image
-     ↓
-HTTP upload
-     ↓
-FastAPI
-     ↓
-OpenCV decoding
-     ↓
-InsightFace detection
-     ↓
-512-dimensional normalized embedding
-     ↓
-repeat for five prompted positions
-     ↓
-average embeddings
-     ↓
-store enrolled representation
-     ↓
-PostgreSQL
-```
-
----
-
-# Authentication Pipeline
-
-Authentication uses a new camera image.
-
-```text
-ESP32 camera
-     ↓
-capture authentication image
-     ↓
-HTTP upload
-     ↓
-FastAPI
-     ↓
-OpenCV decoding
-     ↓
-InsightFace face detection
-     ↓
-normalized embedding
-     ↓
-load enrolled embedding
-     ↓
-Euclidean distance
-     ↓
-compare with 0.95
-     ↓
-ACCEPT / REJECT
-```
-
----
-
-# Relationship Between the Experiments and the Deployed System
-
-The offline experiments were used to understand the behavior of the embedding model before hardware integration.
-
-They established that:
-
-1. same-person embeddings generally produced smaller distances
-2. different-person embeddings generally produced substantially larger distances
-3. increased capture variation pushed genuine distances upward
-4. the genuine and impostor distributions remained separated in the evaluated experiments
-5. a verification threshold around the region between the two populations was reasonable for further system testing
-
-The final system then applied this analysis to the real backend.
-
----
-
-# Hardware Validation
-
-Offline dataset evaluation is not enough for an embedded access-control system.
-
-The actual camera introduces additional variables.
-
-The final system therefore uses captures from the ESP32 camera during real enrollment and authentication.
-
-The hardware integration validates the complete path:
-
-```text
-physical person
-      ↓
-ESP32 camera
-      ↓
-captured image
-      ↓
-network request
-      ↓
-FastAPI
-      ↓
-OpenCV
-      ↓
-InsightFace
-      ↓
-embedding
-      ↓
-distance comparison
-      ↓
-authentication state machine
-```
-
-This is important because an ML model that performs well on stored dataset images may behave differently with images produced by the actual embedded camera.
-
----
-
-# ESP32 Camera Considerations
-
-The camera used by the physical kiosk has different characteristics from the images used in offline experiments.
-
-Possible sources of variation include:
-
-- lower image quality
-- compression
-- sensor noise
-- exposure
-- field of view
-- cropping
-- camera placement
-- subject distance
-- environmental lighting
-
-For this reason, the physical demonstration enrolls a consenting participant using actual ESP32 captures rather than relying on the offline test images.
-
----
-
-# Why Offline and Hardware Testing Are Both Necessary
-
-The two forms of evaluation answer different questions.
-
-## Offline experiments
-
-Answer:
-
-```text
-Does the embedding model show useful
-genuine/impostor separation?
-```
-
-## Hardware integration testing
-
-Answers:
-
-```text
-Does the complete deployed pipeline work
-with the actual kiosk camera and network path?
-```
+InsightFace detects the face and produces a **512-dimensional embedding**: a numeric vector representing features learned by the pretrained model. The experiments used InsightFace's normalized embeddings, so vectors can be compared on a consistent scale. They do not compare photographs pixel by pixel.
 
-Both are necessary for a meaningful system demonstration.
+### Euclidean distance
 
----
+For two embeddings, the Euclidean distance is the square root of the sum of their squared component-by-component differences:
 
-# What the Graphs Should Not Be Interpreted As
-
-The figures should not be interpreted as:
-
-```text
-model accuracy graphs
-training curves
-loss curves
-neural-network training results
-```
-
-No face-recognition network was trained as part of this project.
-
-The graphs represent:
-
 ```text
-distributions of embedding distances
+distance = sqrt(sum((embedding_A[i] - embedding_B[i]) ** 2))
 ```
-
-for genuine and impostor comparisons.
-
-They evaluate the behavior of an existing pretrained model within the project's verification pipeline.
-
----
-
-# Why No Model Training Was Required
-
-The goal of the project was to build an integrated biometric access-control system rather than develop a new face-recognition architecture.
-
-Using a pretrained model allowed the work to focus on:
-
-- embedding evaluation
-- threshold analysis
-- authentication architecture
-- enrollment design
-- backend integration
-- embedded-camera integration
-- multi-factor authentication
-- cloud deployment
-
-This reflects the role of machine learning as one component within a larger engineering system.
-
----
 
-# Security Interpretation
+A **smaller** distance means the model produced more similar face representations. A **larger** distance means the representations differ more.
 
-A face match should be interpreted carefully.
+### Genuine and impostor pairs
 
-The face-recognition system determines whether:
+- **Genuine comparison:** two images belonging to the *same* person. The desired distance is relatively small.
+- **Impostor comparison:** images belonging to *different* people. The desired distance is relatively large.
 
-```text
-submitted face embedding
-≈
-stored enrolled face embedding
-```
-
-It does not independently prove:
-
-- physical presence
-- liveness
-- resistance to presentation attacks
-- that the person is not using a photograph or display
+The key question is whether there is a gap between the **largest genuine distance** and the **smallest impostor distance**. If the two ranges overlap, some decisions become more difficult. The experiment-specific gaps below measure the separation observed in the evaluated images.
 
----
+## Experiment 1: controlled conditions
 
-# Liveness Detection
+![Experiment 1 — controlled face distances](experiment_1_controlled_face_distances.png)
 
-Dedicated liveness detection or anti-spoofing is not currently implemented.
+### Objective
 
-The system should therefore be described as:
+Establish a baseline for the model with multiple head views but a common lighting condition. The goal was to see whether same-person distances stayed below different-person distances under relatively controlled acquisition.
 
-```text
-face recognition
-```
+### Images and procedure
 
-or:
-
-```text
-face verification
-```
+The recorded experiment used **249 subjects**, with these five view codes for each subject: `051`, `140`, `050`, `130`, and `041`. Lighting condition `06` was held constant. These codes come from the experiment's image naming/selection scheme; the available project notes do not identify the dataset's formal name or define every view code, so they should not be expanded into invented pose descriptions.
 
-not as:
+Each selected image was processed with InsightFace to obtain its normalized embedding. Distances between images of the **same subject** were collected as genuine comparisons; distances between images of **different subjects** were collected as impostor comparisons. The reported counts correspond to comparing every distinct image pair within each identity and every image combination between different identities:
 
 ```text
-liveness detection
+249 subjects × 10 same-person pairs = 2,490 genuine comparisons
+249 × 248 / 2 subject pairs × 5 × 5 image pairs = 771,900 impostor comparisons
 ```
-
-This distinction is deliberate.
 
----
+Those calculations explain the reported comparison counts; they do not independently verify the original experiment script or how unsuccessful detections, if any, were handled.
 
-# Why Face Recognition Is Not the Only Factor
+### Results
 
-Face recognition is not used by itself.
+| Measurement | Genuine pairs | Impostor pairs |
+| --- | ---: | ---: |
+| Number of comparisons | 2,490 | 771,900 |
+| Minimum distance | 0.2735 | 1.0593 |
+| Average distance | 0.4862 | 1.3947 |
+| Maximum distance | 0.8133 | 1.5783 |
 
-The system first establishes identity using:
-
-```text
-RFID
-```
+The most difficult observed genuine comparison was **0.8133**, while the closest observed pair of different identities was **1.0593**. The difference between them was approximately **0.246** distance units.
 
-or the fallback:
+### How to read the graph
 
-```text
-employee ID + PIN
-```
+The **genuine distribution** lies on the lower-distance side of the figure; the **impostor distribution** lies on the higher-distance side. The gap between their observed extremes means that a threshold placed inside that interval would separate all comparisons in **this particular experiment**.
 
-The backend then requests:
+The averages alone are not enough to make this decision. The genuine average (**0.4862**) describes a typical same-person comparison, but legitimate comparisons were also recorded as high as **0.8133**. Similarly, the average impostor distance (**1.3947**) is much less important to threshold selection than the *closest* different-person pair at **1.0593**.
 
-```text
-FACE
-```
+## Experiment 2: increased variation
 
-or:
+![Experiment 2 — varied lighting face distances](experiment_2_varied_lighting_face_distances.png)
 
-```text
-FINGERPRINT
-```
+### Objective
 
-as the second factor.
+Evaluate whether the separation observed in Experiment 1 remains when the images are less consistent, particularly with more varied lighting/capture conditions. The aim was to test a harder same-person comparison, because a kiosk user's authentication image will not look exactly like the enrollment images every time.
 
-This means the face model operates as one component of a multi-factor authentication system.
+### Procedure and recorded results
 
----
+The project records identify this as the **varied-lighting experiment**, but the exact additional lighting codes and the complete image-selection procedure were not retained in the supplied documentation. It should not be presented as a fully reproducible study until those details are recovered from the original experiment script or dataset.
 
-# Experimental Conclusions
+The recorded results are:
 
-The evaluation produced several useful findings.
+| Measurement | Recorded value |
+| --- | ---: |
+| Average genuine distance | 0.589 |
+| Maximum genuine distance | 0.906 |
+| Minimum impostor distance | approximately 1.059 |
+| Gap between those extremes | approximately 0.153 |
 
-## 1. Strong separation under controlled conditions
+Other summary values and comparison counts for this run are not available in the current records and are intentionally omitted.
 
-Experiment 1 produced:
+### How to read the graph
 
-```text
-maximum genuine = 0.813
-minimum impostor = 1.059
-```
+Compared with Experiment 1, the genuine comparisons moved toward **larger distances**. The same person's images became less similar to the model as acquisition conditions varied. The maximum recorded genuine distance rose from **0.813** to **0.906** and the mean from **0.486** to **0.589**.
 
-giving an observed gap of approximately:
+The closest reported impostor remained near **1.059**, so the observed gap became **smaller**, shrinking from about **0.246** to **0.153**. The genuine and impostor ranges still did not overlap in this recorded experiment, but the reduced margin illustrates why the threshold cannot be chosen using only controlled images.
 
-```text
-0.246
-```
+## Comparison and threshold selection
 
----
+| Result | Experiment 1 | Experiment 2 |
+| --- | ---: | ---: |
+| Average genuine distance | 0.486 | 0.589 |
+| Maximum genuine distance | 0.813 | 0.906 |
+| Minimum impostor distance | 1.059 | ~1.059 |
+| Observed separation | ~0.246 | ~0.153 |
 
-## 2. Capture variation affects genuine similarity
+### Candidate threshold on the graphs
 
-Experiment 2 increased the maximum genuine distance to:
+The development plots mark a candidate threshold near **0.93**. Both experiments recorded genuine distances below this value and impostor distances above it. This makes it a useful *illustrative decision boundary for the recorded image pairs*, not a guaranteed threshold for all people or future captures.
 
-```text
-0.906
-```
+### Threshold used by the backend
 
-and the genuine average to:
+The backend uses `FACE_THRESHOLD = 0.95` with the decision:
 
 ```text
-0.589
+distance <= 0.95  -> accept face match
+distance > 0.95   -> reject face match
 ```
-
-This confirms that environmental and image variation matters.
 
----
+This value remains above the largest genuine distance observed in Experiment 2 (**0.906**) and below its reported smallest impostor distance (**1.059**). Relative to these observed extremes, it leaves about **0.044** above the genuine maximum and **0.109** below the impostor minimum.
 
-## 3. Separation remained in the evaluated data
+A higher threshold gives a legitimate user more tolerance for changes in their image, but also accepts more similarity between different people. A lower threshold does the opposite. The chosen value is a **project-specific engineering setting informed by the development experiments**. The experiments do not prove that it is universally optimal.
 
-Even after increased variation:
-
-```text
-maximum genuine ≈ 0.906
+## Deployed enrollment and authentication
 
-minimum impostor ≈ 1.059
-```
+The offline experiments compare embeddings from **individual images**. The deployed enrollment process is different: it builds one stored representation from **five images** captured at prompted head positions. The two methods should not be described as though the experimental distances directly measure the deployed averaged-template pipeline.
 
-leaving approximately:
+### Five-capture enrollment
 
-```text
-0.153
-```
+The kiosk requests the following head positions:
 
-of observed separation.
+1. `LOOK_STRAIGHT`
+2. `TURN_SLIGHTLY_LEFT`
+3. `TURN_MORE_LEFT`
+4. `TURN_SLIGHTLY_RIGHT`
+5. `TURN_MORE_RIGHT`
 
----
+For each accepted image, the backend extracts a normalized 512-dimensional embedding. In the available enrollment code, it then **averages the five embeddings and normalizes the average again** before storing it in PostgreSQL. The intention is to include several head orientations in the user's enrolled representation; a direct performance advantage over one-image enrollment was **not separately tested** in the two graphs.
 
-## 4. Threshold selection requires a compromise
+### Authentication capture
 
-The final threshold:
+At authentication, the ESP32 sends a new camera image. The backend decodes it with OpenCV, generates an InsightFace embedding, loads the expected user's stored enrollment embedding, calculates Euclidean distance, and applies the configured threshold.
 
 ```text
-0.95
+Five enrollment images                    Authentication image
+           |                                      |
+  five normalized embeddings               normalized embedding
+           |                                      |
+   average and re-normalize                        |
+           |                                      |
+  stored enrollment vector ------------ Euclidean distance
+                                                  |
+                                          compare to 0.95
+                                                  |
+                                            accept / reject
 ```
-
-was selected above the most difficult genuine comparison observed during these experiments while remaining below the closest observed impostor comparison.
 
----
+Actual ESP32 captures matter because the embedded camera may differ from the offline dataset in lighting, framing, compression, sharpness, and cropping. Hardware testing confirmed that the camera/upload/backend path was integrated after an initial camera issue was fixed; the offline plots are **not** a quantitative study of accuracy on ESP32 images.
 
-## 5. Hardware validation remains important
+## What the experiments establish
 
-Offline evaluation cannot fully represent the characteristics of the ESP32 camera.
+The recorded results support three limited conclusions:
 
-The final system therefore performs enrollment and authentication using the actual camera used by the kiosk.
+1. **Controlled comparisons separated:** Experiment 1 recorded a gap of approximately **0.246** between its largest genuine and smallest impostor distances.
+2. **Variation made genuine matching harder:** Experiment 2 increased the largest genuine distance to about **0.906**, reducing the observed gap to approximately **0.153**.
+3. **A decision boundary was plausible for the evaluated image pairs:** the experimental threshold near **0.93** and deployed setting **0.95** both fall between the recorded Experiment 2 extremes.
 
----
+These conclusions apply to the evaluated pairs. They do not establish a general acceptance or rejection rate for unseen users, and they do not prove that every physical kiosk capture will match.
 
-# Limitations
-
-The experiments should be interpreted within the scope of a prototype engineering project.
-
-Important limitations include:
-
-- only 249 identities were included in Experiment 1
-- the evaluation dataset does not represent every possible user population
-- only selected capture conditions were tested
-- ESP32 camera images may differ from the evaluation images
-- dedicated liveness detection was not implemented
-- formal FAR, FRR, and EER benchmarking was not performed
-- no claim is made that 0.95 is a universal InsightFace threshold
-- deployment environments may introduce additional image variation
-
-A production biometric access-control system would require broader testing across substantially more users, devices, lighting conditions, demographic groups, and attack scenarios.
-
----
-
-# Future ML Improvements
-
-Possible future extensions include:
-
-- larger evaluation datasets
-- formal FAR measurement
-- formal FRR measurement
-- Equal Error Rate analysis
-- ROC curve generation
-- threshold calibration using real ESP32 captures
-- evaluation across multiple cameras
-- explicit image-quality checks
-- face alignment validation
-- liveness detection
-- presentation-attack detection
-- testing under extreme lighting
-- evaluation of glasses, facial hair, and appearance changes
-
-These features are outside the scope of the current prototype but provide clear directions for future development.
-
----
-
-# Final Interpretation
-
-The ML component was not treated as a black-box API.
-
-The project experimentally evaluated the distance behavior of the chosen face-embedding model before incorporating it into the access-control system.
-
-The experiments demonstrated that, for the evaluated data:
-
-```text
-same-person comparisons
-<
-different-person comparisons
-```
+## Limitations and next steps
 
-with no observed genuine/impostor overlap in either experiment.
+- **Dataset details:** the formal dataset name/source, license, exact view-code meanings, and Experiment 2 sample selection must be added from the original source or experiment script if the evaluation is to be reproduced independently.
+- **Capture conditions:** offline dataset images do not reproduce every lighting, pose, camera, or framing condition at the physical kiosk.
+- **Method difference:** the graphs use image-to-image distances, whereas the deployed system compares an authentication embedding with an averaged enrollment representation.
+- **Threshold validation:** the reported threshold was investigated using development data; a separate, more varied evaluation would be needed to assess its behavior beyond those comparisons.
+- **Liveness:** the project implements **face verification**, not dedicated liveness or photo/screen-attack detection.
 
-Increasing capture variation reduced the separation margin, demonstrating why real-world conditions must be considered when selecting a verification threshold.
+Possible next steps include collecting more consented ESP32 captures, recording distances from actual kiosk attempts, comparing single-image and five-image enrollment, and testing more lighting and appearance changes. No further ML features are required to understand the current prototype.
 
-The resulting analysis informed the final backend threshold and the multi-image enrollment strategy used by the physical biometric kiosk.
+## Related documentation
 
----
+- [Backend and API](../backend/README.md)
+- [Database](../database/README.md)
+- [Dashboard](../dashboard/README.md)
+- [Hardware and firmware](../hardware/README.md)
